@@ -1,0 +1,23 @@
+# Rust
+/target/
+**/target/
+Cargo.lock.bak
+**/*.rs.bk
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Claude Code
+.claude/
+
+# Env / secrets
+.env
+.env.*
+
+# Benchmarks / profiling output
+*.profraw
+*.vcd
+flamegraph.svg

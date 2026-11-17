@@ -1,0 +1,106 @@
+Design Specification: tpt-dev Workspace
+Project Name: tpt-dev
+Maintainer: TPT Solutions
+License: Strictly MIT (No Apache-only, No GPL, No AGPL)
+Target Environments: std, no_std, Embedded, Real-Time, Edge AI, Wasm
+1. Executive Summary & Vision
+tpt-dev is a foundational, pure-Rust developer tooling workspace containing 30 highly specialized, zero-dependency (or minimal-dependency) crates. It is designed to solve the most critical, unsolved, or poorly solved pain points in modern systems programming, ranging from formal verification and hard real-time concurrency to edge-AI infrastructure and post-quantum cryptography.
+Unlike general-purpose utility crates, every crate in tpt-dev provides a Unique Value Proposition (UVP): it is either entirely novel to the Rust ecosystem or provides a strictly better, zero-allocation, no_std-compatible alternative to existing heavyweights.
+2. Core Principles & Non-Negotiable Constraints
+Strict Pure MIT Licensing: Every crate is licensed under MIT. The workspace will explicitly ban Apache-2.0-only, GPL, and AGPL dependencies.
+no_std First: Every crate must compile and function in a no_std environment (e.g., thumbv7em-none-eabihf). std features (like OS threading or filesystem) must be gated behind optional features.
+Zero-Allocation in Hot Paths: Crates dealing with data processing, parsing, or concurrency must provide APIs that operate entirely on pre-allocated buffers or stack memory.
+Internal-First Development: No crate is built from scratch for the public. Code is first battle-tested in proprietary TPT domain stacks (e.g., tpt-flight-control, tpt-physics), then generalized and extracted.
+Solo-Maintainer Sustainability: The workspace is optimized for a single maintainer. It relies on heavy automation, strict boundaries, and a "benevolent dictator" contribution model.
+3. Workspace Architecture
+The repository is a flat Cargo workspace. All 30 crates reside in a single crates/ directory to simplify CI/CD and dependency management.
+tpt-dev/
+├── Cargo.toml              # Workspace root & shared dependency definitions
+├── deny.toml               # cargo-deny configuration (Strict MIT enforcement)
+├── rust-toolchain.toml     # Pins the Rust version for reproducibility
+├── .github/workflows/      # CI/CD pipelines (test, lint, deny, release)
+├── CONTRIBUTING.md         # Strict solo-maintainer boundaries
+├── README.md               # High-level ecosystem overview
+└── crates/
+    ├── tpt-dev-solver/
+    ├── tpt-dev-contract/
+    ├── tpt-dev-paged/
+    ├── tpt-dev-pqc/
+    └── ... (all 30 crates)
+
+3.1. The deny.toml Configuration (License Enforcement)
+To guarantee the "Pure MIT" rule, cargo-deny is integrated into the CI pipeline with the following strict configuration:
+
+[licenses]
+# We only allow permissive, non-copyleft licenses. 
+# Apache-2.0 is explicitly excluded to maintain strict Pure MIT.
+allow = [
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+]
+# Deny everything else (Apache-2.0, GPL, AGPL, etc.)
+deny = [
+    "Apache-2.0", 
+    "GPL-1.0", "GPL-2.0", "GPL-3.0",
+    "AGPL-1.0", "AGPL-3.0",
+]
+
+4. Crate Taxonomy & Unique Value Propositions (UVP)
+Group 1: Formal Verification & Contracts
+tpt-dev-solver: Pure-Rust QF_LRA SMT solver. UVP: Eliminates external Z3 binaries for formal verification.
+tpt-dev-contract: #[requires]/#[ensures] macros. UVP: Compile-time provable design-by-contract.
+tpt-dev-fuzz: Solver-guided structural fuzzer. UVP: Generates inputs that satisfy complex linear preconditions.
+tpt-dev-test: Property-based testing with invariant generation. UVP: Tests properties dependent on arithmetic constraints.
+Group 2: Advanced FFI & AST
+tpt-dev-headers: C-header generator. UVP: Generates beautiful, Doxygen-ready C headers, unlike cbindgen.
+tpt-dev-ffi: Zero-copy FFI state machine framework. UVP: Safely manages complex, stateful C API lifetimes.
+tpt-dev-ast: Zero-copy streaming AST parser framework. UVP: Parses massive syntax trees using only a fixed stack buffer.
+Group 3: Real-Time, Embedded & Concurrency
+tpt-dev-async: Hard real-time no_std async runtime. UVP: Guarantees bounded execution times; no tokio overhead.
+tpt-dev-trace: Zero-alloc distributed tracing. UVP: Tracing for embedded systems without heap allocation.
+tpt-dev-lock: Deadlock-free sync primitives. UVP: Compile-time deadlock detection and wait-free registers.
+tpt-dev-mem: Safe MMIO framework. UVP: Zero-cost, safe abstractions for hardware register manipulation.
+Group 4: Performance, Profiling & Codegen
+tpt-dev-profiler: Zero-overhead sampling profiler. UVP: Pure-Rust function-level profiling without external perf.
+tpt-dev-bench: Statistical benchmarking & CI gating. UVP: Blocks PRs automatically if performance regresses.
+tpt-dev-codec: Compile-time validated serialization. UVP: Schema correctness verified before runtime.
+tpt-dev-dsl: Domain-Specific Language framework. UVP: Embed custom DSLs without writing a parser from scratch.
+tpt-dev-codegen: Build-time code generation. UVP: Superior, formatted alternative to raw build.rs scripts.
+Group 5: Developer Experience (DX)
+tpt-dev-doc: Interactive, runnable documentation. UVP: Rustdoc with a live, embedded REPL for examples.
+tpt-dev-lint: Custom project-specific linting. UVP: Write custom Clippy lints without compiler plugins.
+tpt-dev-dep: Dependency graph analyzer. UVP: Detects circular deps, license violations, and bloat.
+tpt-dev-mock: Compile-time zero-boilerplate mocking. UVP: Replaces mockall with zero compile-time overhead.
+Group 6: Next-Gen AI & Edge Infrastructure
+tpt-dev-paged: no_std Paged Memory Manager for LLM KV-Caches. UVP: Run local LLMs on edge devices without memory fragmentation.
+tpt-dev-dispatch: Heterogeneous compute task scheduler. UVP: Routes tasks to CPU/NPU/GPU abstracting away vendor SDKs.
+Group 7: Future-Proof Security
+tpt-dev-pqc: Pure-Rust Post-Quantum Cryptography. UVP: Strictly MIT, zero-dep ML-KEM/ML-DSA implementations.
+tpt-dev-zk: Rust-to-Zero-Knowledge circuit transpiler. UVP: Write standard Rust functions, auto-transpile to ZK circuits.
+Group 8: Advanced Debugging & Logic
+tpt-dev-replay: Deterministic execution recorder. UVP: Perfectly replay concurrent/embedded crashes deterministically.
+tpt-dev-automata: State machine logic verifier. UVP: Mathematically proves state machines have no deadlocks at compile-time.
+Group 9: Wasm & Hardware
+tpt-dev-compose: Wasm Component Model linker. UVP: Dynamically link/compose Wasm components at runtime in pure Rust.
+tpt-dev-sim: Cycle-accurate hardware simulator. UVP: Simulate FPGA/silicon timing and signals entirely in safe Rust.
+Group 10: Secure Enclaves & Telemetry
+tpt-dev-tee: Trusted Execution Environment abstraction. UVP: High-level safe abstractions for ARM TrustZone/Intel TDX.
+tpt-dev-sink: Zero-alloc edge telemetry router. UVP: Lock-free, heap-free batching/routing for microcontrollers.
+
+6. CI/CD & Quality Gates
+Every push and Pull Request must pass the following GitHub Actions pipeline:
+Format & Lint: cargo fmt --check and cargo clippy --workspace -- -D warnings.
+License Check: cargo deny check licenses (Fails immediately if an Apache-only or GPL crate is introduced).
+Multi-Target Testing:
+cargo test --workspace (Standard std tests).
+cargo test --workspace --target thumbv7em-none-eabihf --no-run (Ensures all crates compile in no_std).
+Concurrency Testing: cargo loom for all crates in Group 3 (Concurrency) to prove lock-freedom and absence of data races.
+7. Release & Publishing Strategy
+Tooling: Use cargo-release to manage the workspace.
+Command: cargo release patch --workspace --execute. This will atomically bump versions, create git tags, and publish all modified crates to crates.io in the correct dependency order.
+Documentation: Rely entirely on docs.rs. Ensure every public function has a doc comment with at least one #[doc = include_str!("../README.md")] or code example.
+Versioning: Strict Semantic Versioning. Because these are foundational crates, breaking changes in 0.x are expected, but 1.0 will signify API stability.
