@@ -10,111 +10,111 @@ Maintainer: TPT Solutions · License: `MIT OR Apache-2.0` · 30 crates · Greenf
 
 **Standard per-crate checklist (S)**: design and public API sketch · implement core · `no_std` build on `thumbv7em-none-eabihf` · unit and integration tests · doc comment on every public item (with example or `include_str!("../README.md")`) · crate README · `cargo deny` clean · `0.1.0` publish.
 
-Progress: Phase 0 [ ] · 1 [ ] · 2 [ ] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7 [ ]
+Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7 [ ]
 
 ---
 
 ## Phase 0: Project setup & identity
 
-- [ ] Check crates.io availability of all 30 `tpt-dev-*` names (and reserve them)
-- [ ] Create GitHub org `tpt-solutions` and repo `tpt-dev`
-- [ ] Initialise git repo and `.gitignore`
-- [ ] Root `Cargo.toml`: workspace members `crates/*`, `[workspace.package]` (license `MIT OR Apache-2.0`, authors TPT Solutions, edition, repository, rust-version)
-- [ ] `[workspace.dependencies]` with shared dependency definitions
-- [ ] Shared `[workspace.lints]` (forbid/deny unsafe where possible, clippy settings)
-- [ ] `rust-toolchain.toml` pinning stable Rust, with the `thumbv7em-none-eabihf` target
-- [ ] Document the MSRV policy (decided: latest stable minus 2 releases; MSRV bumps only in minor versions and are noted in the changelog)
-- [ ] `LICENSE-MIT` (copyright TPT Solutions)
-- [ ] `LICENSE-APACHE` (Apache-2.0 text, copyright TPT Solutions)
-- [ ] `deny.toml`: allow MIT, BSD-2-Clause, BSD-3-Clause, ISC, Zlib, Unicode-3.0; leave Apache-2.0 off the allow list so only MIT-offering deps pass; deny Apache-2.0-only, GPL-1/2/3, AGPL-1/3
-- [ ] Verify `deny.toml` accepts our own `MIT OR Apache-2.0` crates and an `MIT OR Apache-2.0` dep, and rejects an Apache-only dep
-- [ ] `README.md`: high-level ecosystem overview, license section
-- [ ] `CONTRIBUTING.md`: strict solo-maintainer boundaries, benevolent-dictator model
-- [ ] Update `spec.txt` to match the dual-license decision (spec says strictly MIT)
-- [ ] Write the missing spec section 5 (the spec jumps from 4 to 6)
-- [ ] `crates/` skeleton: 30 empty crates with `Cargo.toml` (inherit workspace package fields), `src/lib.rs` with `#![no_std]`, `README.md`
-- [ ] Add a `std` feature convention to every crate (`default = []`, `std = []`)
-- [ ] Confirm the empty workspace builds on host and `thumbv7em-none-eabihf`
+- [ ] Check crates.io availability of all 30 `tpt-dev-*` names (and reserve them) — *availability checked 2026-11-19: all 30 unclaimed; reservation pending (needs a publish, so left for the maintainer)*
+- [x] Create GitHub org `tpt-solutions` and repo `tpt-dev` — *repo exists at `origin` (verified with `git ls-remote`)*
+- [x] Initialise git repo and `.gitignore`
+- [x] Root `Cargo.toml`: workspace members `crates/*`, `[workspace.package]` (license `MIT OR Apache-2.0`, authors TPT Solutions, edition, repository, rust-version)
+- [ ] `[workspace.dependencies]` with shared dependency definitions — *deferred: cargo warns about unused entries, so add them with the first proc-macro crate (syn/quote/proc-macro2)*
+- [x] Shared `[workspace.lints]` (forbid/deny unsafe where possible, clippy settings) — *`unsafe_code = deny`, not `forbid`, so a crate can opt in later with a SAFETY comment*
+- [x] `rust-toolchain.toml` pinning stable Rust, with the `thumbv7em-none-eabihf` target
+- [x] Document the MSRV policy (decided: latest stable minus 2 releases; MSRV bumps only in minor versions and are noted in the changelog) — *in CONTRIBUTING.md; `rust-version = 1.98`*
+- [x] `LICENSE-MIT` (copyright TPT Solutions)
+- [x] `LICENSE-APACHE` (Apache-2.0 text, copyright TPT Solutions)
+- [x] `deny.toml`: allow MIT, BSD-2-Clause, BSD-3-Clause, ISC, Zlib, Unicode-3.0; leave Apache-2.0 off the allow list so only MIT-offering deps pass; deny Apache-2.0-only, GPL-1/2/3, AGPL-1/3
+- [x] Verify `deny.toml` accepts our own `MIT OR Apache-2.0` crates and an `MIT OR Apache-2.0` dep, and rejects an Apache-only dep — *verified with scratch crates (Apache-only and GPL rejected; dual and MIT accepted)*
+- [x] `README.md`: high-level ecosystem overview, license section
+- [x] `CONTRIBUTING.md`: strict solo-maintainer boundaries, benevolent-dictator model
+- [x] Update `spec.txt` to match the dual-license decision (spec says strictly MIT)
+- [x] Write the missing spec section 5 (the spec jumps from 4 to 6) — *written as "Implementation Layers & Build Order", derived from Phases 2–6*
+- [x] `crates/` skeleton: 30 empty crates with `Cargo.toml` (inherit workspace package fields), `src/lib.rs` with `#![no_std]`, `README.md`
+- [x] Add a `std` feature convention to every crate (`default = []`, `std = []`)
+- [x] Confirm the empty workspace builds on host and `thumbv7em-none-eabihf`
 
 ## Phase 1: CI/CD & quality gates
 
-- [ ] GitHub Actions workflow: format & lint (`cargo fmt --check`, `cargo clippy --workspace -- -D warnings`)
-- [ ] Workflow: license check (`cargo deny check licenses`), fails on any Apache-only or GPL dependency
-- [ ] Workflow: `cargo test --workspace`
-- [ ] Workflow: `cargo test --workspace --target thumbv7em-none-eabihf --no-run` (no_std compile check)
-- [ ] Workflow: loom concurrency tests for all Group 3 crates (async, trace, lock, mem)
-- [ ] Workflow: release pipeline using `cargo-release`
-- [ ] Configure `cargo-release` (`cargo release patch --workspace --execute`: version bump, git tags, publish in dependency order)
-- [ ] Configure `docs.rs` metadata per crate (`[package.metadata.docs.rs]`)
-- [ ] Doc-comment rule check: every public function has a doc comment with a code example or `#[doc = include_str!("../README.md")]`
-- [ ] Add `missing_docs` lint at workspace level
-- [ ] Dry-run the full pipeline on the empty workspace
+- [x] GitHub Actions workflow: format & lint (`cargo fmt --check`, `cargo clippy --workspace -- -D warnings`) — *`.github/workflows/ci.yml`*
+- [x] Workflow: license check (`cargo deny check licenses`), fails on any Apache-only or GPL dependency
+- [x] Workflow: `cargo test --workspace`
+- [x] Workflow: no_std compile check — *uses `cargo build --workspace --target thumbv7em-none-eabihf`; `cargo test --target thumbv7em…` cannot work because test harnesses need std*
+- [ ] Workflow: loom concurrency tests for all Group 3 crates (async, trace, lock, mem) — *deferred until those crates have code*
+- [x] Workflow: release pipeline using `cargo-release` — *`.github/workflows/release.yml`, manual dispatch, dry run by default*
+- [x] Configure `cargo-release` (`cargo release patch --workspace --execute`: version bump, git tags, publish in dependency order) — *`release.toml`, shared version*
+- [x] Configure `docs.rs` metadata per crate (`[package.metadata.docs.rs]`)
+- [ ] Doc-comment rule check: every public function has a doc comment with a code example or `#[doc = include_str!("../README.md")]` — *deferred: needs public items to check; a candidate for tpt-dev-lint*
+- [x] Add `missing_docs` lint at workspace level
+- [ ] Dry-run the full pipeline on the empty workspace — *local checks pass (fmt, clippy -D warnings, test, thumbv7em build, cargo-deny). `cargo release patch --workspace --no-verify` plans v0.0.1 and reaches the push step, which fails in dry run because the tree is uncommitted. Re-run on a committed tree. GitHub Actions not run remotely.*
 
 ---
 
 ## Phase 2: Layer 0 primitives (Group 3 + AST)
 
 ### tpt-dev-mem: safe MMIO framework
-- [ ] S
-- [ ] Typed register/field abstractions with zero-cost access
-- [ ] Read/write/modify access-mode types (RO, WO, RW, W1C)
-- [ ] Volatile access wrapper with documented safety invariants
-- [ ] Macro or builder to declare a peripheral register block
-- [ ] Tests on host with a mock memory region
-- [ ] Verify zero-cost via assembly or size comparison with raw volatile code
+- [x] S — *0.1.0 publish deferred to Phase 7*
+- [x] Typed register/field abstractions with zero-cost access
+- [x] Read/write/modify access-mode types (RO, WO, RW, W1C)
+- [x] Volatile access wrapper with documented safety invariants
+- [x] Macro or builder to declare a peripheral register block
+- [x] Tests on host with a mock memory region
+- [x] Verify zero-cost via assembly or size comparison with raw volatile code — *typed `modify_field` and raw read-modify-write emit identical Thumb assembly (thumbv7em, release)*
 
 ### tpt-dev-lock: deadlock-free sync primitives
-- [ ] S
-- [ ] Lock-ordering model for compile-time deadlock detection
-- [ ] Lock-level types enforced by the type system
-- [ ] Wait-free register / single-writer cells
-- [ ] Lock-free SPSC queue (fixed capacity, no heap)
-- [ ] Loom tests for every primitive
-- [ ] Compile-fail tests (trybuild or equivalent) proving deadlock-prone code is rejected
+- [x] S — *0.1.0 publish deferred to Phase 7*
+- [x] Lock-ordering model for compile-time deadlock detection
+- [x] Lock-level types enforced by the type system
+- [x] Wait-free register / single-writer cells
+- [x] Lock-free SPSC queue (fixed capacity, no heap)
+- [x] Loom tests for every primitive — *`tests/loom.rs`: TripleBuffer, Spsc, nested Mutex; run with `RUSTFLAGS="--cfg loom"`*
+- [x] Compile-fail tests (trybuild or equivalent) proving deadlock-prone code is rejected — *trybuild in `tests/ui/`*
 
 ### tpt-dev-trace: zero-alloc distributed tracing
-- [ ] S
-- [ ] Span and event types with fixed-size storage
-- [ ] Trace and span ID propagation across tasks/devices
-- [ ] Ring-buffer backed collector with no heap
-- [ ] Pluggable `Sink` trait for exporting
-- [ ] Loom tests for concurrent span recording
-- [ ] Timestamp source abstraction for bare metal
+- [x] S — *0.1.0 publish deferred to Phase 7*
+- [x] Span and event types with fixed-size storage
+- [x] Trace and span ID propagation across tasks/devices
+- [x] Ring-buffer backed collector with no heap
+- [x] Pluggable `Sink` trait for exporting
+- [x] Loom tests for concurrent span recording — *`tests/loom.rs`; takes ~80 s*
+- [x] Timestamp source abstraction for bare metal
 
 ### tpt-dev-sink: zero-alloc edge telemetry router
-- [ ] S
-- [ ] Lock-free, heap-free batching
-- [ ] Routing rules table (static, fixed capacity)
-- [ ] Back-pressure and drop policies
-- [ ] Integration with tpt-dev-trace and tpt-dev-lock primitives
-- [ ] Throughput benchmark on host
+- [x] S — *0.1.0 publish deferred to Phase 7*
+- [x] Lock-free, heap-free batching
+- [x] Routing rules table (static, fixed capacity)
+- [x] Back-pressure and drop policies
+- [x] Integration with tpt-dev-trace and tpt-dev-lock primitives
+- [x] Throughput benchmark on host — *`examples/throughput.rs`: ~470 M msgs/s direct, ~420 M msgs/s via SPSC ingress (release, host)*
 
 ### tpt-dev-ast: zero-copy streaming AST parser framework
-- [ ] S
-- [ ] Streaming tokenizer API over `&[u8]` chunks
-- [ ] Parser driver working in a fixed stack buffer (configurable depth)
-- [ ] Error type for stack-depth overflow (no panics)
-- [ ] Visitor/event API
-- [ ] Example grammar (JSON-like) as a reference
-- [ ] Test on inputs much larger than the stack buffer
+- [x] S — *0.1.0 publish deferred to Phase 7*
+- [x] Streaming tokenizer API over `&[u8]` chunks
+- [x] Parser driver working in a fixed stack buffer (configurable depth)
+- [x] Error type for stack-depth overflow (no panics)
+- [x] Visitor/event API
+- [x] Example grammar (JSON-like) as a reference
+- [x] Test on inputs much larger than the stack buffer
 
 ---
 
 ## Phase 3: Layer 1 formal verification core (Group 1 + automata)
 
 ### tpt-dev-solver: pure-Rust QF_LRA SMT solver
-- [ ] S
-- [ ] Rational arithmetic type (decided: checked `i128` numerator/denominator, no external bignum; overflow returns `Unknown`, never a wrong answer)
-- [ ] Term/formula representation (arena-allocated, fixed-capacity option)
-- [ ] SMT-LIB 2 parser for the QF_LRA subset
-- [ ] Simplex-based linear real arithmetic theory solver
-- [ ] SAT core (CDCL) with DPLL(T) integration
-- [ ] Model extraction
-- [ ] Unsat core / proof output
-- [ ] Incremental solving (push/pop)
-- [ ] Cross-check against reference results on a test corpus (SMT-LIB QF_LRA benchmarks)
+- [x] S — *0.1.0 publish deferred to Phase 7*
+- [x] Rational arithmetic type (decided: checked `i128` numerator/denominator, no external bignum; overflow returns `Unknown`, never a wrong answer) — *`rational.rs`; comparison is overflow-free (continued fractions)*
+- [ ] Term/formula representation (arena-allocated, fixed-capacity option) — *arena is `alloc`-backed (`term.rs`); the fixed-capacity option is not done*
+- [x] SMT-LIB 2 parser for the QF_LRA subset — *`smt.rs`: declare, assert, check-sat, get-model, push/pop, exit; nonlinear terms rejected*
+- [x] Simplex-based linear real arithmetic theory solver — *Dutertre–de Moura with delta-rationals, Bland's rule (`simplex.rs`)*
+- [x] SAT core (CDCL) with DPLL(T) integration — *lazy: theory checked on full assignments; blocking clauses from simplex conflicts (`sat.rs`)*
+- [x] Model extraction
+- [ ] Unsat core / proof output — *minimal unsat core done (`unsat_core`, deletion-based); proof output not done*
+- [ ] Incremental solving (push/pop) — *push/pop scope the assertions, but every check re-solves from scratch; not yet truly incremental*
+- [ ] Cross-check against reference results on a test corpus (SMT-LIB QF_LRA benchmarks) — *randomized oracle (DNF + Fourier–Motzkin) passes about 50k random cases (several seeds and depths) with model checks; SMT-LIB corpus not yet available offline*
 - [ ] Performance benchmarks and optimisation pass
-- [ ] `no_std` + `alloc` support, with a bounded-memory mode
+- [ ] `no_std` + `alloc` support, with a bounded-memory mode — *`no_std` + `alloc` builds for `thumbv7em`; bounded-memory mode not done*
 
 ### tpt-dev-contract: `#[requires]` / `#[ensures]` macros
 - [ ] S
