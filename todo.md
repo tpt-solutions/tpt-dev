@@ -156,14 +156,14 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 ## Phase 4: Layer 2 runtime & codegen (Groups 3 + 4)
 
 ### tpt-dev-async: hard real-time no_std async runtime
-- [ ] S
-- [ ] Static task storage (no heap)
-- [ ] Bounded-time executor with documented worst-case poll latency
-- [ ] Priority scheduling
-- [ ] Timers/delay abstraction on a hardware tick
-- [ ] Wake mechanism safe from interrupt context
-- [ ] Loom tests for executor and wakers
-- [ ] WCET measurement on a target or simulator
+- [x] S — *0.1.0 publish deferred to Phase 7*
+- [x] Static task storage (no heap) — *tasks borrowed from caller storage; fixed slots, up to 32*
+- [x] Bounded-time executor with documented worst-case poll latency — *a round polls at most N tasks; latency bounds in README*
+- [x] Priority scheduling — *highest-priority ready task first within a round*
+- [x] Timers/delay abstraction on a hardware tick — *`Delay` over `tpt_dev_trace::Clock`; it busy-waits (self-wakes), so no sleep-until-tick yet*
+- [x] Wake mechanism safe from interrupt context — *wake is one atomic fetch_or, no lock or allocation*
+- [x] Loom tests for executor and wakers — *`tests/loom.rs`: no lost wake-ups from another thread*
+- [ ] WCET measurement on a target or simulator — *`Stats` counts polls on the host; target measurement not done*
 
 ### tpt-dev-replay: deterministic execution recorder
 - [ ] S
