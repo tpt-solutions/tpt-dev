@@ -10,9 +10,19 @@ repository.workspace = true
 readme = "README.md"
 categories = ["no-std"]
 
-[features]
-default = []
-std = []
+# A proc-macro crate runs on the host, so it cannot target no_std bare metal.
+# CI builds it for the host only.
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full", "parsing", "printing", "proc-macro"] }
+tpt-dev-solver = { version = "0.0.0", path = "../tpt-dev-solver" }
+
+[dev-dependencies]
+trybuild = "1"
 
 [lints]
 workspace = true

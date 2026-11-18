@@ -1,0 +1,5 @@
+error: `ensures` clause `result > 100` is false: counterexample: x = 5
+ --> tests/ui/refuted.rs:5:29
+  |
+5 | #[tpt_dev_contract::ensures(result > 100)]
+  |                             ^^^^^^

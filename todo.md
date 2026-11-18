@@ -117,14 +117,14 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [ ] `no_std` + `alloc` support, with a bounded-memory mode — *`no_std` + `alloc` builds for `thumbv7em`; bounded-memory mode not done*
 
 ### tpt-dev-contract: `#[requires]` / `#[ensures]` macros
-- [ ] S
-- [ ] Proc-macro crate (syn/quote/proc-macro2)
-- [ ] Parse `requires`, `ensures`, and `old()` expressions
-- [ ] Translate the arithmetic subset to tpt-dev-solver queries
-- [ ] Compile-time proof of contracts where decidable; clear compile errors on counterexamples
-- [ ] Fall back to runtime checks (debug-only) for non-provable contracts
-- [ ] Compile-fail tests with counterexample output
-- [ ] Documentation of the supported expression subset
+- [x] S — *0.1.0 publish deferred to Phase 7*
+- [x] Proc-macro crate (syn/quote/proc-macro2) — *`proc-macro = true`; host only, so CI excludes it from the bare-metal build*
+- [ ] Parse `requires`, `ensures`, and `old()` expressions — *`requires` and `ensures` parse; `old()` is not supported yet*
+- [x] Translate the arithmetic subset to tpt-dev-solver queries — *`translate.rs`: linear integer arithmetic and booleans*
+- [x] Compile-time proof of contracts where decidable; clear compile errors on counterexamples — *proves `ensures` for straight-line linear bodies; refutations with integer models become compile errors naming the inputs*
+- [x] Fall back to runtime checks (debug-only) for non-provable contracts — *`requires` is always checked on entry; unproven `ensures` are checked on return*
+- [x] Compile-fail tests with counterexample output — *trybuild case in `tests/ui/refuted.rs`*
+- [x] Documentation of the supported expression subset — *`README.md`, with limits*
 
 ### tpt-dev-automata: state machine logic verifier
 - [x] S — *0.1.0 publish deferred to Phase 7*
