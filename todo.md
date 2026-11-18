@@ -174,12 +174,12 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [x] Demonstrate replaying a concurrent crash bit-for-bit — *`tests/crash.rs`: a recorded crash replays with the same message and an identical log*
 
 ### tpt-dev-codec: compile-time validated serialization
-- [ ] S
-- [ ] Schema definition (derive macro or DSL)
-- [ ] Compile-time schema validation (overlaps, widths, versions)
-- [ ] Zero-alloc encode/decode into caller buffers
-- [ ] Endianness and bit-field support
-- [ ] Fuzz round-trip tests
+- [x] S — *0.1.0 publish deferred to Phase 7*
+- [x] Schema definition (derive macro or DSL) — *`const` field lists (`Field::bits`/`Field::be`); no derive macro*
+- [x] Compile-time schema validation (overlaps, widths, versions) — *checked in const evaluation; `Layout::extends` checks version evolution; trybuild cases*
+- [x] Zero-alloc encode/decode into caller buffers — *`encode`/`decode` on slices, no allocation*
+- [x] Endianness and bit-field support — *little-endian bit fields; byte-aligned big-endian fields*
+- [x] Fuzz round-trip tests — *property-based round trips via tpt-dev-test (not coverage-guided)*
 
 ### tpt-dev-dsl: domain-specific language framework
 - [ ] S

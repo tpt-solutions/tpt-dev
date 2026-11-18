@@ -1,0 +1,23 @@
+error[E0080]: evaluation panicked: a big-endian field must be byte-aligned and a whole number of bytes
+ --> tests/ui/big_unaligned.rs:4:27
+  |
+4 | const LAYOUT: Layout<2> = Layout::new(&FIELDS);
+  |                           ^^^^^^^^^^^^^^^^^^^^ evaluation of `LAYOUT` failed inside this call
+  |
+note: inside `tpt_dev_codec::Layout::<2>::new`
+ --> src/layout.rs
+  |
+  |         validate(fields, B);
+  |         ^^^^^^^^^^^^^^^^^^^
+note: inside `tpt_dev_codec::field::validate`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/field.rs
+  |
+  | /             assert!(
+  | |                 f.offset % 8 == 0 && f.width % 8 == 0,
+  | |                 "a big-endian field must be byte-aligned and a whole number of bytes"
+  | |             );
+  | |_____________- in this macro invocation
