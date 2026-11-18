@@ -1,8 +1,30 @@
 # tpt-dev-test
 
-Property-based testing with invariant generation for arithmetic constraints.
+Property-based testing for arithmetic. Inputs are generated, failures are shrunk to small counterexamples, and runs are reproducible from a seed. Constrained generation and invariant inference use `tpt-dev-solver`.
 
-**Status:** skeleton (`0.0.0`, not published). Part of the [tpt-dev](https://github.com/tpt-solutions/tpt-dev) workspace.
+- **Deterministic runs:** each case has its own seed, derived from the run seed and the case index. A failure reports the seed and case, and `replay` regenerates that input.
+- **Generators and shrinking:** `IntRange`, `Bools`, `VecOf` and `Pair`. Shrinking is greedy and bounded by `max_shrinks`.
+- **Solver-constrained generation:** `ConstrainedGen` produces values that satisfy a linear real constraint. The random bounds spread the samples out.
+- **Invariant inference:** `infer` proposes linear bounds from samples. `prove` checks each one with the solver, and returns either `Holds` or a counterexample that the solver's model confirms.
+- **`no_std` with `alloc`:** the runner and generators need no standard library.
+
+## Example
+
+```rust
+use tpt_dev_test::{Config, IntRange, check};
+
+let failure = check(&Config::default(), &IntRange::new(0, 1000), |&x| x < 100)
+    .unwrap_err();
+assert_eq!(failure.minimal, 100);
+// Rerun exactly this case with `replay(&config, failure.case, &gen)`.
+```
+
+## Limits
+
+- **Invariants are candidates, not a full invariant generator.** `infer` only proposes bounds on single variables and pairs, and the bounds come from the largest value seen in the samples. Samples show nothing by themselves, so every candidate needs `prove`.
+- **`prove` checks one invariant against one precondition.** It does not check inductiveness of transition systems.
+- **Shrinking is greedy.** It can stop at a local minimum when the failing set is not monotone.
+- **Constrained sampling is not uniform.** Models are drawn from the solver with random lower bounds, so the distribution is biased toward the solver's choices.
 
 ## License
 

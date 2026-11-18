@@ -127,20 +127,20 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [ ] Documentation of the supported expression subset
 
 ### tpt-dev-automata: state machine logic verifier
-- [ ] S
-- [ ] State machine description DSL (macro or builder)
-- [ ] Reachability and deadlock analysis
-- [ ] Compile-time proof of deadlock freedom via the solver where guards are arithmetic
-- [ ] Counterexample trace reporting
-- [ ] Compile-fail tests on deadlocking machines
+- [x] S — *0.1.0 publish deferred to Phase 7*
+- [x] State machine description DSL (macro or builder) — *builder API in `machine.rs`; a `macro_rules!` front end is not written*
+- [x] Reachability and deadlock analysis — *BFS reachability ignores guards (over-approximation, documented); deadlocks from missing transitions or guards that can all be false*
+- [ ] Compile-time proof of deadlock freedom via the solver where guards are arithmetic — *analysis runs at run time; a compile-time check needs a proc macro (not written)*
+- [x] Counterexample trace reporting — *shortest event path to each deadlock, plus a solver witness valuation*
+- [ ] Compile-fail tests on deadlocking machines — *pending the compile-time check*
 
 ### tpt-dev-test: property-based testing with invariant generation
-- [ ] S
-- [ ] Generator trait and shrinking
-- [ ] Constraint-aware generation using tpt-dev-solver
-- [ ] Invariant generation for arithmetic-dependent properties
-- [ ] Deterministic seeds and failure reproduction
-- [ ] `no_std` runner
+- [x] S — *0.1.0 publish deferred to Phase 7*
+- [x] Generator trait and shrinking — *`generator.rs`: IntRange, Bools, VecOf, Pair; greedy shrinking in `runner.rs`*
+- [x] Constraint-aware generation using tpt-dev-solver — *`ConstrainedGen` samples models of a linear constraint with random bounds*
+- [ ] Invariant generation for arithmetic-dependent properties — *`infer` proposes sample-derived bounds on single variables and pairs; `prove` checks each with the solver (counterexamples are confirmed). No inductive-invariant search over transition systems yet.*
+- [x] Deterministic seeds and failure reproduction — *per-case seeds; `Failure` reports seed and case; `replay` regenerates the input*
+- [x] `no_std` runner — *`no_std` + `alloc`; no std dependency*
 
 ### tpt-dev-fuzz: solver-guided structural fuzzer
 - [ ] S
