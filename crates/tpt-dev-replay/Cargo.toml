@@ -14,6 +14,10 @@ categories = ["no-std"]
 default = []
 std = []
 
+[dependencies]
+tpt-dev-async = { version = "0.0.0", path = "../tpt-dev-async" }
+tpt-dev-trace = { version = "0.0.0", path = "../tpt-dev-trace" }
+
 [lints]
 workspace = true
 

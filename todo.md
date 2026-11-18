@@ -166,12 +166,12 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [ ] WCET measurement on a target or simulator — *`Stats` counts polls on the host; target measurement not done*
 
 ### tpt-dev-replay: deterministic execution recorder
-- [ ] S
-- [ ] Event log format (compact, fixed-size ring buffer option)
-- [ ] Record scheduling decisions, interrupts and inputs
-- [ ] Deterministic replay engine
-- [ ] Integration with tpt-dev-async and tpt-dev-trace
-- [ ] Demonstrate replaying a concurrent crash bit-for-bit
+- [x] S — *0.1.0 publish deferred to Phase 7*
+- [x] Event log format (compact, fixed-size ring buffer option) — *16-byte events; `Log` (append-only, replayable) and `Ring` (overwriting, counts losses)*
+- [x] Record scheduling decisions, interrupts and inputs — *`Session` and `step` log each interrupt, each poll and each input*
+- [x] Deterministic replay engine — *a replay follows the log and reports `Divergence` on any mismatch*
+- [x] Integration with tpt-dev-async and tpt-dev-trace — *drives `poll_slot`/`wake_slot` on the async executor; `Event::to_trace_record` exports to trace*
+- [x] Demonstrate replaying a concurrent crash bit-for-bit — *`tests/crash.rs`: a recorded crash replays with the same message and an identical log*
 
 ### tpt-dev-codec: compile-time validated serialization
 - [ ] S
