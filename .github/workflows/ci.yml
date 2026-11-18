@@ -42,9 +42,9 @@ jobs:
       - uses: actions/checkout@v4
       # Library builds only. Test harnesses need std, which the bare-metal
       # target does not have, so `cargo test --target thumbv7em...` cannot work.
-      # tpt-dev-contract is a proc-macro crate, which runs on the host only.
+      # tpt-dev-contract and tpt-dev-mock-macros are proc-macro crates, which run on the host only.
       - name: Build workspace for bare metal
-        run: cargo build --workspace --exclude tpt-dev-contract --target thumbv7em-none-eabihf
+        run: cargo build --workspace --exclude tpt-dev-contract --exclude tpt-dev-mock-macros --target thumbv7em-none-eabihf
 
   # Loom concurrency tests for Group 3 crates (async, trace, lock, mem) are
   # added once those crates have implementations. Not wired up yet.

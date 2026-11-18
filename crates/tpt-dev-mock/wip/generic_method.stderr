@@ -1,0 +1,5 @@
+error: generic methods cannot be mocked
+ --> tests/ui/generic_method.rs:5:11
+  |
+5 |     fn get<T: Clone>(&self, key: u8) -> T;
+  |           ^^^^^^^^^^

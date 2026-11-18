@@ -196,11 +196,11 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [x] Comparison examples against raw `build.rs` scripts — *`examples/compare.rs` checks that raw and builder output match*
 
 ### tpt-dev-mock: compile-time zero-boilerplate mocking
-- [ ] S
-- [ ] Proc-macro `#[mock]` on traits
-- [ ] Expectations, call counts and argument matchers
-- [ ] `no_std` mock support
-- [ ] Compile-time benchmark vs mockall
+- [x] S — *0.1.0 publish deferred to Phase 7*
+- [x] Proc-macro `#[mock]` on traits — *in `tpt-dev-mock-macros` (a proc-macro crate), re-exported by `tpt-dev-mock`*
+- [x] Expectations, call counts and argument matchers — *`with` matchers, `times`, `returns`/`returns_with`, `verify`, `calls`*
+- [x] `no_std` mock support — *runtime is `no_std` with `alloc`; builds for `thumbv7em`*
+- [ ] Compile-time benchmark vs mockall — *not run: mockall is not a dependency, so no comparison yet*
 
 ---
 

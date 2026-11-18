@@ -1,0 +1,5 @@
+error: associated functions without self cannot be mocked
+ --> tests/ui/no_self.rs:5:5
+  |
+5 |     fn make() -> u8;
+  |     ^^^^^^^^^^^^^^^
