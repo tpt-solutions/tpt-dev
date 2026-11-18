@@ -189,11 +189,11 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [ ] Example DSL as a reference
 
 ### tpt-dev-codegen: build-time code generation
-- [ ] S
-- [ ] Builder API for emitting Rust source
-- [ ] Built-in formatting of generated code (no external rustfmt dependency)
-- [ ] `build.rs` integration helpers and change detection
-- [ ] Comparison examples against raw `build.rs` scripts
+- [x] S — *0.1.0 publish deferred to Phase 7*
+- [x] Builder API for emitting Rust source — *`Writer`: lines, blocks, constants, escaped string constants*
+- [x] Built-in formatting of generated code (no external rustfmt dependency) — *layout is structural (indentation from block nesting); arbitrary code is not reformatted*
+- [x] `build.rs` integration helpers and change detection — *`build::write_if_changed`, `rerun_if_changed`, `rerun_if_env_changed`*
+- [x] Comparison examples against raw `build.rs` scripts — *`examples/compare.rs` checks that raw and builder output match*
 
 ### tpt-dev-mock: compile-time zero-boilerplate mocking
 - [ ] S
