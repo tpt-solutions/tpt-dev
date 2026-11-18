@@ -14,6 +14,10 @@ categories = ["no-std"]
 default = []
 std = []
 
+[dependencies]
+tpt-dev-solver = { version = "0.0.0", path = "../tpt-dev-solver" }
+tpt-dev-test = { version = "0.0.0", path = "../tpt-dev-test" }
+
 [lints]
 workspace = true
 

@@ -143,13 +143,13 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [x] `no_std` runner — *`no_std` + `alloc`; no std dependency*
 
 ### tpt-dev-fuzz: solver-guided structural fuzzer
-- [ ] S
-- [ ] Structure-aware input model
-- [ ] Linear precondition solving to produce valid inputs
-- [ ] Mutation strategy combined with solver-derived seeds
-- [ ] Coverage feedback hook
-- [ ] Corpus management and crash minimisation
-- [ ] Demonstrate finding a bug behind a linear precondition that plain fuzzing misses
+- [x] S — *0.1.0 publish deferred to Phase 7*
+- [x] Structure-aware input model — *fixed-arity integer inputs with bounded mutation (`fuzzer.rs`); no byte-level grammar*
+- [x] Linear precondition solving to produce valid inputs — *`solver_seeds` samples integral solver models of a linear precondition (`seeds.rs`); fractional models are rejected*
+- [x] Mutation strategy combined with solver-derived seeds — *random step, uniform, corpus-copy and swap mutations; solver seeds start the corpus*
+- [x] Coverage feedback hook — *targets call `Coverage::hit`; inputs with new edges join the corpus (`coverage.rs`)*
+- [x] Corpus management and crash minimisation — *bounded corpus with random replacement; greedy minimisation toward zero that keeps the crash*
+- [x] Demonstrate finding a bug behind a linear precondition that plain fuzzing misses — *`tests/guided.rs`: plain fuzzing misses a sum-equality bug in 20,000 iterations; solver seeds find it on the first run*
 
 ---
 
