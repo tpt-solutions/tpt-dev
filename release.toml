@@ -1,0 +1,7 @@
+# cargo-release configuration for the workspace.
+# All crates share one version number, and one tag is created per release.
+shared-version = true
+consolidate-commits = true
+tag-name = "v{{version}}"
+tag-message = "tpt-dev {{version}}"
+pre-release-commit-message = "Release {{version}}"

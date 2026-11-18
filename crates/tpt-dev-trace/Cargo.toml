@@ -1,0 +1,21 @@
+[package]
+name = "tpt-dev-trace"
+description = "Zero-allocation distributed tracing for embedded systems"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme = "README.md"
+categories = ["no-std"]
+
+[features]
+default = []
+std = []
+
+[lints]
+workspace = true
+
+[package.metadata.docs.rs]
+all-features = true

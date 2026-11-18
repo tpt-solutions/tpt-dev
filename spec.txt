@@ -1,13 +1,13 @@
 Design Specification: tpt-dev Workspace
 Project Name: tpt-dev
 Maintainer: TPT Solutions
-License: Strictly MIT (No Apache-only, No GPL, No AGPL)
+License: MIT OR Apache-2.0 (dual). Dependencies must offer MIT (No Apache-only, No GPL, No AGPL)
 Target Environments: std, no_std, Embedded, Real-Time, Edge AI, Wasm
 1. Executive Summary & Vision
 tpt-dev is a foundational, pure-Rust developer tooling workspace containing 30 highly specialized, zero-dependency (or minimal-dependency) crates. It is designed to solve the most critical, unsolved, or poorly solved pain points in modern systems programming, ranging from formal verification and hard real-time concurrency to edge-AI infrastructure and post-quantum cryptography.
 Unlike general-purpose utility crates, every crate in tpt-dev provides a Unique Value Proposition (UVP): it is either entirely novel to the Rust ecosystem or provides a strictly better, zero-allocation, no_std-compatible alternative to existing heavyweights.
 2. Core Principles & Non-Negotiable Constraints
-Strict Pure MIT Licensing: Every crate is licensed under MIT. The workspace will explicitly ban Apache-2.0-only, GPL, and AGPL dependencies.
+Dual MIT OR Apache-2.0 Licensing: Every crate is dual-licensed under MIT OR Apache-2.0, at the user's option. Every dependency must offer an MIT-compatible license (MIT, BSD-2-Clause, BSD-3-Clause, ISC, Zlib, Unicode-3.0). The workspace explicitly bans Apache-2.0-only, GPL, and AGPL dependencies.
 no_std First: Every crate must compile and function in a no_std environment (e.g., thumbv7em-none-eabihf). std features (like OS threading or filesystem) must be gated behind optional features.
 Zero-Allocation in Hot Paths: Crates dealing with data processing, parsing, or concurrency must provide APIs that operate entirely on pre-allocated buffers or stack memory.
 Internal-First Development: No crate is built from scratch for the public. Code is first battle-tested in proprietary TPT domain stacks (e.g., tpt-flight-control, tpt-physics), then generalized and extracted.
@@ -16,7 +16,7 @@ Solo-Maintainer Sustainability: The workspace is optimized for a single maintain
 The repository is a flat Cargo workspace. All 30 crates reside in a single crates/ directory to simplify CI/CD and dependency management.
 tpt-dev/
 ├── Cargo.toml              # Workspace root & shared dependency definitions
-├── deny.toml               # cargo-deny configuration (Strict MIT enforcement)
+├── deny.toml               # cargo-deny configuration (MIT-compatible license enforcement)
 ├── rust-toolchain.toml     # Pins the Rust version for reproducibility
 ├── .github/workflows/      # CI/CD pipelines (test, lint, deny, release)
 ├── CONTRIBUTING.md         # Strict solo-maintainer boundaries
@@ -29,11 +29,13 @@ tpt-dev/
     └── ... (all 30 crates)
 
 3.1. The deny.toml Configuration (License Enforcement)
-To guarantee the "Pure MIT" rule, cargo-deny is integrated into the CI pipeline with the following strict configuration:
+To guarantee the MIT-compatible dependency rule, cargo-deny is integrated into the CI pipeline with the following strict configuration:
 
 [licenses]
-# We only allow permissive, non-copyleft licenses. 
-# Apache-2.0 is explicitly excluded to maintain strict Pure MIT.
+# Only permissive, non-copyleft licenses are allowed. Apache-2.0 is NOT on
+# the list, so Apache-only dependencies fail. A dual license such as
+# "MIT OR Apache-2.0" passes because its MIT option is allowed.
+# GPL and AGPL are never on the list, so they fail as well.
 allow = [
     "MIT",
     "BSD-2-Clause",
@@ -41,12 +43,6 @@ allow = [
     "ISC",
     "Zlib",
     "Unicode-3.0",
-]
-# Deny everything else (Apache-2.0, GPL, AGPL, etc.)
-deny = [
-    "Apache-2.0", 
-    "GPL-1.0", "GPL-2.0", "GPL-3.0",
-    "AGPL-1.0", "AGPL-3.0",
 ]
 
 4. Crate Taxonomy & Unique Value Propositions (UVP)
@@ -79,7 +75,7 @@ Group 6: Next-Gen AI & Edge Infrastructure
 tpt-dev-paged: no_std Paged Memory Manager for LLM KV-Caches. UVP: Run local LLMs on edge devices without memory fragmentation.
 tpt-dev-dispatch: Heterogeneous compute task scheduler. UVP: Routes tasks to CPU/NPU/GPU abstracting away vendor SDKs.
 Group 7: Future-Proof Security
-tpt-dev-pqc: Pure-Rust Post-Quantum Cryptography. UVP: Strictly MIT, zero-dep ML-KEM/ML-DSA implementations.
+tpt-dev-pqc: Pure-Rust Post-Quantum Cryptography. UVP: MIT-compatible license, zero-dep ML-KEM/ML-DSA implementations.
 tpt-dev-zk: Rust-to-Zero-Knowledge circuit transpiler. UVP: Write standard Rust functions, auto-transpile to ZK circuits.
 Group 8: Advanced Debugging & Logic
 tpt-dev-replay: Deterministic execution recorder. UVP: Perfectly replay concurrent/embedded crashes deterministically.
@@ -91,13 +87,23 @@ Group 10: Secure Enclaves & Telemetry
 tpt-dev-tee: Trusted Execution Environment abstraction. UVP: High-level safe abstractions for ARM TrustZone/Intel TDX.
 tpt-dev-sink: Zero-alloc edge telemetry router. UVP: Lock-free, heap-free batching/routing for microcontrollers.
 
+5. Implementation Layers & Build Order
+Crates are implemented and published in layers. A crate may depend only on crates in its own layer or a lower one. The layers match Phases 2 to 6 of todo.md.
+Layer 0 (primitives, Phase 2): tpt-dev-mem, tpt-dev-lock, tpt-dev-trace, tpt-dev-sink, tpt-dev-ast.
+Layer 1 (formal verification core, Phase 3): tpt-dev-solver, tpt-dev-contract, tpt-dev-automata, tpt-dev-test, tpt-dev-fuzz.
+Layer 2 (runtime and codegen, Phase 4): tpt-dev-async, tpt-dev-replay, tpt-dev-codec, tpt-dev-dsl, tpt-dev-codegen, tpt-dev-mock.
+Layer 3 (FFI and developer tooling, Phase 5): tpt-dev-headers, tpt-dev-ffi, tpt-dev-lint, tpt-dev-dep, tpt-dev-doc, tpt-dev-profiler, tpt-dev-bench.
+Application layer (Phase 6): tpt-dev-paged, tpt-dev-dispatch, tpt-dev-pqc, tpt-dev-zk, tpt-dev-tee, tpt-dev-compose, tpt-dev-sim.
+Release order follows the same layers: layers 0, 1, 2, 3, then the application layer. cargo-release publishes in dependency order.
+Every crate must also pass the per-crate checklist (S) in todo.md before its layer is considered complete.
+
 6. CI/CD & Quality Gates
 Every push and Pull Request must pass the following GitHub Actions pipeline:
 Format & Lint: cargo fmt --check and cargo clippy --workspace -- -D warnings.
 License Check: cargo deny check licenses (Fails immediately if an Apache-only or GPL crate is introduced).
 Multi-Target Testing:
 cargo test --workspace (Standard std tests).
-cargo test --workspace --target thumbv7em-none-eabihf --no-run (Ensures all crates compile in no_std).
+cargo build --workspace --target thumbv7em-none-eabihf (Ensures all crates compile in no_std. The test harness needs std, so the bare-metal target cannot run or compile tests; test with the host target.)
 Concurrency Testing: cargo loom for all crates in Group 3 (Concurrency) to prove lock-freedom and absence of data races.
 7. Release & Publishing Strategy
 Tooling: Use cargo-release to manage the workspace.

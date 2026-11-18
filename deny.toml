@@ -1,0 +1,27 @@
+# cargo-deny configuration: strict MIT-compatible license policy.
+# Dependencies must offer a permissive license we accept. A dual license
+# such as `MIT OR Apache-2.0` passes because the MIT option is allowed.
+# Apache-2.0 is NOT on the allow list, so Apache-only dependencies fail.
+# GPL and AGPL are never allowed, so they fail as "not in allow list".
+
+[graph]
+all-features = true
+
+[licenses]
+version = 2
+confidence-threshold = 0.93
+allow = [
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[advisories]
+version = 2

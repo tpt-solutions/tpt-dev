@@ -21,3 +21,6 @@ Thumbs.db
 *.profraw
 *.vcd
 flamegraph.svg
+
+# Library workspace: Cargo.lock is not committed.
+Cargo.lock

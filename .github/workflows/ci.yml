@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt-lint:
+    name: Format & lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check formatting
+        run: cargo fmt --all --check
+      - name: Clippy (warnings are errors)
+        run: cargo clippy --workspace -- -D warnings
+
+  license:
+    name: License check (cargo-deny)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses
+
+  test:
+    name: Tests (std)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run workspace tests
+        run: cargo test --workspace
+
+  no-std:
+    name: no_std build (thumbv7em-none-eabihf)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Library builds only. Test harnesses need std, which the bare-metal
+      # target does not have, so `cargo test --target thumbv7em...` cannot work.
+      - name: Build workspace for bare metal
+        run: cargo build --workspace --target thumbv7em-none-eabihf
+
+  # Loom concurrency tests for Group 3 crates (async, trace, lock, mem) are
+  # added once those crates have implementations. Not wired up yet.
