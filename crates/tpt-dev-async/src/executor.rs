@@ -217,6 +217,50 @@ impl<'a, const N: usize> Executor<'a, N> {
         rounds
     }
 
+    /// Polls exactly one task, slot `i`, if it is ready. Returns `Some(true)`
+    /// if the task finished, `Some(false)` if it is still pending, and `None`
+    /// if the slot is empty or not ready.
+    ///
+    /// This is for drivers, such as replayers, that choose the schedule themselves.
+    pub fn poll_slot(self: Pin<&mut Self>, i: usize) -> Option<bool> {
+        // SAFETY: as in `spawn`.
+        let this = unsafe { self.get_unchecked_mut() };
+        if i >= N
+            || this.slots[i].is_none()
+            || this.ready.fetch_and(!(1 << i), Ordering::AcqRel) & (1 << i) == 0
+        {
+            return None;
+        }
+        let wake: *const Wake = &this.wakes[i];
+        // SAFETY: as in `run_round`.
+        let waker = unsafe { Waker::from_raw(RawWaker::new(wake.cast(), &VTABLE)) };
+        let mut cx = Context::from_waker(&waker);
+        let slot = this.slots[i].as_mut()?;
+        let done = slot.fut.as_mut().poll(&mut cx).is_ready();
+        if done {
+            this.slots[i] = None;
+        }
+        this.stats.polls += 1;
+        Some(done)
+    }
+
+    /// Marks slot `i` ready, as an interrupt handler would. Does nothing for an empty slot.
+    pub fn wake_slot(&self, i: usize) {
+        if i < N && self.slots[i].is_some() {
+            self.ready.fetch_or(1 << i, Ordering::Release);
+        }
+    }
+
+    /// The set of ready slots, one bit per slot.
+    pub fn ready_mask(&self) -> u32 {
+        self.ready.load(Ordering::Acquire)
+    }
+
+    /// The priority of slot `i`, or `None` if the slot is empty.
+    pub fn priority(&self, i: usize) -> Option<u8> {
+        self.slots.get(i)?.as_ref().map(|s| s.priority)
+    }
+
     /// Number of tasks that have not finished.
     pub fn pending(&self) -> usize {
         self.slots.iter().filter(|s| s.is_some()).count()
