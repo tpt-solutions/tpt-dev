@@ -1,0 +1,15 @@
+error[E0308]: mismatched types
+ --> tests/ui/same_level.rs:7:54
+  |
+7 |     a.lock_with(Token::root(), |_, held| b.lock_with(held, |_, _| ()));
+  |                                            --------- ^^^^ expected `Token<Nil>`, found `Token<Succ<Nil>>`
+  |                                            |
+  |                                            arguments to this method are incorrect
+  |
+  = note: expected struct `Token<Nil>`
+             found struct `Token<Succ<Nil>>`
+note: method defined here
+ --> src/mutex.rs
+  |
+  |     pub fn lock_with<Held, R>(&self, held: Token<Held>, f: impl FnOnce(&mut T, Token<L>) -> R) -> R
+  |            ^^^^^^^^^
