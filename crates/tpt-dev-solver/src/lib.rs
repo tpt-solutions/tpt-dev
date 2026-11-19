@@ -6,6 +6,7 @@ extern crate alloc;
 #[cfg(any(test, feature = "std"))]
 extern crate std;
 
+mod proof;
 mod rational;
 mod sat;
 mod simplex;
@@ -13,6 +14,7 @@ mod smt;
 mod solver;
 mod term;
 
+pub use proof::{Proof, ProofStep, check_proof};
 pub use rational::Rational;
 pub use smt::{ScriptError, Session};
 pub use solver::{Budget, Farkas, Solver, Status, check_farkas};

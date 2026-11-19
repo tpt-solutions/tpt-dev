@@ -64,6 +64,8 @@ pub(crate) struct Sat {
     theory_unsat: bool,
     /// Clause count above which `solve` returns `Unknown`.
     max_clauses: usize,
+    /// Clauses added during search, with `true` for theory clauses. Kept only while tracing.
+    trace: Option<Vec<(Vec<Lit>, bool)>>,
 }
 
 impl Sat {
@@ -83,6 +85,23 @@ impl Sat {
             qhead: 0,
             theory_unsat: false,
             max_clauses: usize::MAX,
+            trace: None,
+        }
+    }
+
+    /// Starts recording the clauses added during search.
+    pub(crate) fn start_trace(&mut self) {
+        self.trace = Some(Vec::new());
+    }
+
+    /// Stops recording and returns the clauses recorded since `start_trace`.
+    pub(crate) fn take_trace(&mut self) -> Vec<(Vec<Lit>, bool)> {
+        self.trace.take().unwrap_or_default()
+    }
+
+    fn record(&mut self, lits: &[Lit], theory: bool) {
+        if let Some(t) = &mut self.trace {
+            t.push((lits.to_vec(), theory));
         }
     }
 
@@ -239,6 +258,7 @@ impl Sat {
     fn learn_theory_clause(&mut self, mut lits: Vec<Lit>) -> Option<usize> {
         lits.sort_unstable_by_key(|l| l.0);
         lits.dedup();
+        self.record(&lits, true);
         if lits.is_empty() {
             self.theory_unsat = true;
             return None;
@@ -273,6 +293,7 @@ impl Sat {
     /// Handles a conflicting clause: learns the first-UIP clause and backjumps.
     fn resolve_conflict(&mut self, confl: usize) {
         let (learnt, back_level) = self.analyze(confl);
+        self.record(&learnt, false);
         self.backtrack(back_level);
         if learnt.len() == 1 {
             self.enqueue(learnt[0], None);

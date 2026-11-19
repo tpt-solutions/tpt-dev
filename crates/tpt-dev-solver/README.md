@@ -8,6 +8,7 @@ Pure-Rust solver for quantifier-free linear real arithmetic (QF_LRA). It replace
 - **Incremental:** `push` and `pop` keep the encoding, the learned clauses and the simplex tableau. Assertions are passed as SAT assumptions, so `pop` retracts them without invalidating anything learned.
 - **Unsat cores:** `unsat_core` returns a minimal set of assertions that is still unsatisfiable.
 - **Farkas certificates:** `unsat_certificate` returns a checkable proof for conjunctions of linear literals. `check_farkas` verifies it without the solver. The format is documented on `Farkas`.
+- **Proofs for Boolean structure:** `unsat_proof` returns a `Proof` for any Boolean combination of linear atoms. It is a DRUP-style clause list whose theory lemmas each carry a Farkas certificate. `check_proof` verifies it by unit propagation and `check_farkas`, and never calls the solver. The format is documented in `proof.rs`.
 - **Budgets:** `Budget` caps formula nodes, clauses and simplex pivots. A check that reaches a cap returns `Unknown`.
 - **Fixed-capacity arena:** `FixedArena` stores formulas inline, with no heap allocation in the store.
 - **SMT-LIB subset:** `Session` runs scripts with `declare-fun`, `assert`, `check-sat`, `get-model`, `push`, `pop` and `exit`.
@@ -39,7 +40,8 @@ assert!(out.starts_with("sat\n"));
 - **Theory checks run only on full assignments.** There is no theory propagation. Checking partial assignments was tried and was slower.
 - **No restarts and no clause deletion.** Learned clauses accumulate for the life of a solver, so a long session should start a new `Solver` (or set `Budget::max_clauses`).
 - **Memory is not reclaimed by `pop`.** Encodings and learned clauses stay. `Budget` limits them.
-- **Farkas certificates cover only conjunctions of linear literals.** A problem with `or` or a compound `not` gets no certificate. A full DPLL(T) proof is not produced.
+- **Farkas certificates cover only conjunctions of linear literals.** A problem with `or` or a compound `not` gets no certificate. Use `unsat_proof` for those.
+- **Proofs trust the Tseitin encoder.** `check_proof` rebuilds the clauses with the crate's encoder, and does not check it independently. The proof must be checked against the arena it was built from.
 - **The `FixedArena` store is allocation-free, but the search is not.** Solving uses `alloc` for its working state.
 - **Unsat cores are deletion-based.** They take one solver call per assertion.
 - **Only real variables and linear terms.** Nonlinear products, `ite` and `distinct` are rejected.

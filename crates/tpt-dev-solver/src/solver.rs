@@ -6,6 +6,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::Unknown;
+use crate::proof::Proof;
 use crate::rational::Rational;
 use crate::sat::{Lit, Sat, SatResult};
 use crate::simplex::{Check, DRat, Simplex};
@@ -61,12 +62,12 @@ impl Default for Budget {
 }
 
 /// A linear inequality as the theory sees it: `slack <= bound`, or `<` when strict.
-struct TheoryAtom {
+pub(crate) struct TheoryAtom {
     /// Index of the row defining the slack variable (`n + row` in the tableau).
-    row: usize,
-    bound: Rational,
-    strict: bool,
-    var: u32,
+    pub(crate) row: usize,
+    pub(crate) bound: Rational,
+    pub(crate) strict: bool,
+    pub(crate) var: u32,
 }
 
 /// Owns an [`Arena`] of formulas and a stack of asserted formulas.
@@ -243,6 +244,26 @@ impl Solver {
         }
     }
 
+    /// Returns a checkable proof that the current assertions are unsatisfiable,
+    /// for any Boolean structure over linear atoms. The format is in
+    /// [`crate::Proof`]. Check it with [`crate::check_proof`].
+    ///
+    /// Returns `Ok(None)` when the assertions are satisfiable. Returns
+    /// `Err(Unknown)` when a budget is reached, or when the proof does not pass
+    /// its own check. An `Unknown` never comes with a proof.
+    pub fn unsat_proof(&mut self) -> Result<Option<Proof>, Unknown> {
+        let Some(proof) = crate::proof::produce(&self.arena, &self.assertions, &self.budget)?
+        else {
+            return Ok(None);
+        };
+        if crate::proof::check_proof(&self.arena, &self.assertions, &proof) {
+            Ok(Some(proof))
+        } else {
+            // Unreachable by construction. Reporting Unknown keeps a bad proof from escaping.
+            Err(Unknown)
+        }
+    }
+
     /// Checks `cert` against the current assertions, with [`check_farkas`].
     pub fn check_certificate(&self, cert: &Farkas) -> bool {
         check_farkas(&self.arena, &self.assertions, cert)
@@ -306,7 +327,7 @@ pub(crate) struct Core {
 }
 
 /// What one theory check found.
-enum TheoryOutcome {
+pub(crate) enum TheoryOutcome {
     /// A clause that blocks the assignment.
     Conflict(Vec<Lit>),
     /// A model for the real variables.
@@ -377,7 +398,7 @@ impl Core {
 
 /// Checks the current full Boolean assignment against the linear theory.
 /// Only the bounds are rebuilt. The tableau keeps the pivots of earlier checks.
-fn theory_check(
+pub(crate) fn theory_check(
     simplex: &mut Simplex,
     n: usize,
     atoms: &[TheoryAtom],
@@ -432,20 +453,22 @@ fn negated_clause(reasons: &[(u32, Rational)]) -> Vec<Lit> {
 /// Converts formulas to CNF with the Tseitin transformation, and collects
 /// the theory atoms and their defining rows. Kept across checks, so every
 /// formula is encoded once.
-struct Encoder {
-    next_var: u32,
+pub(crate) struct Encoder {
+    pub(crate) next_var: u32,
     /// Clauses not yet handed to the SAT core.
-    clauses: Vec<Vec<Lit>>,
+    pub(crate) clauses: Vec<Vec<Lit>>,
     /// Rows defining each distinct expression as a slack variable.
-    rows: Vec<Vec<(usize, Rational)>>,
+    pub(crate) rows: Vec<Vec<(usize, Rational)>>,
     slack_of: BTreeMap<Vec<(Var, Rational)>, usize>,
-    atoms: Vec<TheoryAtom>,
+    pub(crate) atoms: Vec<TheoryAtom>,
+    /// The Boolean variable of each encoded atom formula.
+    pub(crate) atom_vars: Vec<(u32, Formula)>,
     /// Literal for each formula node already encoded.
     memo: BTreeMap<u32, Lit>,
 }
 
 impl Encoder {
-    const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
             // Variable 0 is the constant `true`.
             next_var: 1,
@@ -453,6 +476,7 @@ impl Encoder {
             rows: Vec::new(),
             slack_of: BTreeMap::new(),
             atoms: Vec::new(),
+            atom_vars: Vec::new(),
             memo: BTreeMap::new(),
         }
     }
@@ -464,7 +488,12 @@ impl Encoder {
     }
 
     /// The literal for `f`. Fails if encoding would exceed `max_nodes`.
-    fn encode<S: Source>(&mut self, src: &S, f: Formula, max_nodes: usize) -> Result<Lit, Unknown> {
+    pub(crate) fn encode<S: Source>(
+        &mut self,
+        src: &S,
+        f: Formula,
+        max_nodes: usize,
+    ) -> Result<Lit, Unknown> {
         if let Some(&l) = self.memo.get(&f.0) {
             return Ok(l);
         }
@@ -480,7 +509,13 @@ impl Encoder {
                 terms,
                 bound,
                 strict,
-            } => self.atom(terms.to_vec(), bound, strict),
+            } => {
+                let lit = self.atom(terms.to_vec(), bound, strict);
+                if lit.var() != 0 {
+                    self.atom_vars.push((lit.var() as u32, f));
+                }
+                lit
+            }
             NodeView::Not(g) => self.encode(src, g, max_nodes)?.negate(),
             NodeView::And(gs) => {
                 let lits = self.encode_all(src, gs, max_nodes)?;
@@ -689,7 +724,7 @@ fn collect_literals<S: Source>(src: &S, f: Formula, out: &mut Vec<(Formula, bool
 
 /// Finds the simplex conflict for a conjunction of literals, as a certificate.
 /// `Ok(None)` if the simplex finds the literals satisfiable.
-fn farkas_conflict<S: Source>(
+pub(crate) fn farkas_conflict<S: Source>(
     src: &S,
     lits: &[(Formula, bool)],
     pivot_limit: u64,
@@ -762,7 +797,7 @@ fn farkas_from(list: &[(u32, Rational)]) -> Farkas {
 }
 
 /// The rules in [`Farkas`], checked directly on the literals.
-fn verify_farkas<S: Source>(src: &S, lits: &[(Formula, bool)], cert: &Farkas) -> bool {
+pub(crate) fn verify_farkas<S: Source>(src: &S, lits: &[(Formula, bool)], cert: &Farkas) -> bool {
     if cert.coefficients.is_empty() {
         return false;
     }
