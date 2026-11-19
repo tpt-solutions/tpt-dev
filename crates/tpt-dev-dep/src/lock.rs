@@ -27,9 +27,9 @@ impl Graph {
         let mut parts = dep.split_whitespace();
         let name = parts.next()?;
         let version = parts.next();
-        self.packages.iter().position(|p| {
-            p.name == name && version.is_none_or(|v| p.version == v)
-        })
+        self.packages
+            .iter()
+            .position(|p| p.name == name && version.is_none_or(|v| p.version == v))
     }
 
     /// Each package's direct dependencies, as package indices. Unresolvable
@@ -37,7 +37,12 @@ impl Graph {
     pub fn edges(&self) -> Vec<Vec<usize>> {
         self.packages
             .iter()
-            .map(|p| p.dependencies.iter().filter_map(|d| self.resolve(d)).collect())
+            .map(|p| {
+                p.dependencies
+                    .iter()
+                    .filter_map(|d| self.resolve(d))
+                    .collect()
+            })
             .collect()
     }
 }
@@ -68,7 +73,8 @@ pub fn parse_lock(text: &str) -> Result<Graph, String> {
                 in_deps = false;
                 continue;
             }
-            let dep = quoted(line).ok_or_else(|| format!("line {}: bad dependency entry", i + 1))?;
+            let dep =
+                quoted(line).ok_or_else(|| format!("line {}: bad dependency entry", i + 1))?;
             if let Some(p) = current.as_mut() {
                 p.dependencies.push(dep);
             }
@@ -92,11 +98,18 @@ pub fn parse_lock(text: &str) -> Result<Graph, String> {
                 p.version = quoted(rest).ok_or_else(|| format!("line {}: bad version", i + 1))?;
             }
         } else if let Some(rest) = line.strip_prefix("dependencies = ") {
-            if rest.trim() == "[]" {
-                continue;
-            }
-            if rest.trim() == "[" {
+            let rest = rest.trim();
+            if rest == "[" {
                 in_deps = true;
+            } else if let Some(inner) = rest.strip_prefix('[').and_then(|r| r.strip_suffix(']')) {
+                // A single-line array, such as ["a", "b 1.0"].
+                if let Some(p) = current.as_mut() {
+                    for item in inner.split(',').filter(|s| !s.trim().is_empty()) {
+                        let dep = quoted(item)
+                            .ok_or_else(|| format!("line {}: bad dependency entry", i + 1))?;
+                        p.dependencies.push(dep);
+                    }
+                }
             } else {
                 return Err(format!("line {}: unsupported dependencies syntax", i + 1));
             }
@@ -105,7 +118,10 @@ pub fn parse_lock(text: &str) -> Result<Graph, String> {
     if let Some(p) = current.take() {
         packages.push(p);
     }
-    if packages.iter().any(|p| p.name.is_empty() || p.version.is_empty()) {
+    if packages
+        .iter()
+        .any(|p| p.name.is_empty() || p.version.is_empty())
+    {
         return Err(String::from("a package is missing its name or version"));
     }
     Ok(Graph { packages })

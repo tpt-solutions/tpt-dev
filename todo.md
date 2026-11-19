@@ -234,12 +234,12 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [ ] Document the limits of analysis without type information
 
 ### tpt-dev-dep: dependency graph analyzer
-- [ ] S
-- [ ] Parse `Cargo.lock`/`cargo metadata` output
-- [ ] Circular dependency detection
-- [ ] License violation detection (consistent with deny.toml policy)
-- [ ] Bloat analysis (dep count, transitive size)
-- [ ] CLI and report formats
+- [x] S — *0.1.0 publish deferred to Phase 7*
+- [ ] Parse `Cargo.lock`/`cargo metadata` output — *`Cargo.lock` only; `cargo metadata` JSON is not parsed*
+- [x] Circular dependency detection — *Tarjan's strongly connected components (`report.rs`)*
+- [x] License violation detection (consistent with deny.toml policy) — *SPDX-style expressions checked against an allow list; the list is passed in, not read from deny.toml*
+- [x] Bloat analysis (dep count, transitive size) — *transitive dependency counts per package; sizes in bytes are not measured*
+- [x] CLI and report formats — *`tpt-dev-dep` binary with text output and exit codes; no JSON output*
 
 ### tpt-dev-doc: interactive, runnable documentation
 - [ ] S
