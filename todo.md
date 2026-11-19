@@ -244,7 +244,7 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 ### tpt-dev-doc: interactive, runnable documentation
 - [x] S — *0.1.0 publish deferred to Phase 7*
 - [x] Extract examples from doc comments — *`extract` reads fenced blocks with rustdoc's tags and hidden lines; `doc_comments` takes `///` and `//!` text from source*
-- [x] Embedded live REPL for running examples (decided: examples compiled to Wasm and run client-side in the browser, no server) — *`site::write_repl_page` generates a separate page that loads the Wasm from relative paths; Wasm checked under Node 22. Not browser-tested: Worker timeout and CSP. Needs HTTP serving (file:// fails).*
+- [x] Embedded live REPL for running examples (decided: examples compiled to Wasm and run client-side in the browser, no server) — *`site::write_repl_page` writes the page; Wasm checked under Node 22; `tests/browser.rs` (opt-in, `TPT_DEV_DOC_BROWSER=1`) passes in headless Chrome 157 and Edge 157 on Windows: pass, trap, 5 s Worker timeout, CSP. Firefox and Safari not tested. Needs HTTP serving (file:// fails).*
 - [x] Rustdoc integration (HTML injection) — *`tpt-dev-doc-site` binary (`site::run_post_doc_step`) runs after `cargo doc`; tested on a rustdoc-shaped temp tree. Build.rs output is overwritten by rustdoc, so it must be a post-step.*
 - [x] Hosting-compatible output for docs.rs — *static only (decided); `site::write_examples_page` plus a test asserting no script, frame, form, image, link or URL. A build step must still call it.*
 - [x] Sandboxing/security review — *README section: nothing executes code yet; the review must be repeated when the Wasm runner lands*

@@ -41,9 +41,28 @@ let html = page("Arithmetic", &examples);
 assert!(html.contains("<h1>Arithmetic</h1>"));
 ```
 
+## Browser test
+
+`tests/browser.rs` loads the generated REPL page in a headless browser. It covers three examples (a pass, a failing `assert_eq!`, and an infinite loop) and checks that the page's Content-Security-Policy blocks a cross-origin `fetch` and blocks nothing the page needs. The test is opt-in and needs `std`:
+
+```sh
+TPT_DEV_DOC_BROWSER=1 cargo test -p tpt-dev-doc --features std --test browser -- --nocapture
+```
+
+`TPT_DEV_DOC_BROWSER=1` uses Chrome or Edge from the default install paths. A path to another browser binary also works. Unset, set to a missing file, or with no browser found, the test prints why it skipped and passes. It starts the browser with a remote-debugging port, serves the page over HTTP on 127.0.0.1, and drives it with the DevTools protocol.
+
+**Last run:** Google Chrome 157.0.8103.79 and Microsoft Edge 157.0.4341.60, both headless, on Windows 11 Pro, on the maintainer's machine. Both passed. The page showed:
+
+- passing example: `passed` (about 21 ms)
+- failing `assert_eq!`: `failed: unreachable` (about 21 ms; the Wasm trap)
+- infinite loop: `stopped: time limit reached` (about 5.05 s)
+- CSP: zero violations for the examples, and one violation for the control `fetch`
+
+**Not tested:** Firefox and Safari. Other versions of Chrome and Edge, and other operating systems, are also untested.
+
 ## Not done yet
 
-- **Live REPL in a browser.** The REPL page is generated and checked as text, and its Wasm modules run under Node 22 in a test: a passing example returned, a failing `assert_eq!` trapped, and no module imports anything. The page itself, the Worker time limit, and the Content-Security-Policy have not been run in a browser.
+- **Other browsers.** The REPL page is browser-tested only in headless Chrome and Edge on one Windows machine (see above). Firefox and Safari have not been run, so their Worker time limit and CSP handling are unknown.
 - **Wasm limits.** Modules are built with `std`, so they are about 1.6 MB. Examples that define `fn main`, use inner attributes (`#![...]`), or need other crates are not built.
 
 ## Sandboxing review
@@ -52,10 +71,10 @@ Repeated for the Wasm runner. The review covers the compile step, which runs on 
 
 - **The compile step reads source on the build machine, so use it on trusted documentation only.** `rustc` compiles each example's source on the maintainer's machine. `include_str!`, `include_bytes!` and `env!` read that machine's files and environment, and the result is embedded in the Wasm that readers download. The compiler flags are fixed by the crate. `rustc` is run with `RUSTC` or `rustc`, and nothing is sandboxed.
 - **Runner: browser sandbox.** The Wasm module imports nothing; a test checks this under Node. It cannot reach the DOM, the network or the file system. It runs in a Web Worker, which the page can terminate.
-- **Runner: time limit.** The limit is 5 s, enforced by the page with `worker.terminate()`. It is **not verified in a browser**. The Node test does not cover it either, since Node has no Worker timeout path in this test. Treat it as unproven until it is run in a browser.
+- **Runner: time limit.** The limit is 5 s, enforced by the page with `worker.terminate()`. It is **browser-tested in headless Chrome 157 and Edge 157 on this machine only**: a looping example was stopped at about 5.05 s and reported `stopped: time limit reached`. Firefox and Safari are **not tested**. The Node test does not cover the timeout, since Node has no Worker timeout path in this test.
 - **Runner: memory.** Memory is capped at 16 MiB with the linker flag `--max-memory`. The flag was checked by building, not by running out of memory.
 - **Runner: output.** The page must show `detail` with `textContent`. `RUNNER_JS` has no `innerHTML`, `eval` or `importScripts`, and a test checks this. The REPL page's own script does not use `innerHTML` either.
-- **REPL page: Content-Security-Policy.** The page carries its own CSP meta tag: `default-src 'none'`, inline script, `wasm-unsafe-eval`, `worker-src blob:`, and `connect-src 'self'`. **This CSP is not verified in a browser.** It is not known that a browser accepts blob Workers and WebAssembly under it, or that a meta CSP applies to the page as written. A server-sent header would be the stronger way to set it; the page does not depend on one.
+- **REPL page: Content-Security-Policy.** The page carries its own CSP meta tag: `default-src 'none'`, inline script, `wasm-unsafe-eval`, `worker-src blob:`, and `connect-src 'self'`. It is **browser-tested in headless Chrome 157 and Edge 157 on this machine only**, and **Firefox and Safari are not tested**. In headless Chrome and Edge the inline runner, WebAssembly and the blob Worker all ran with zero CSP violations. A cross-origin `fetch` from the same page was blocked by `connect-src`, which shows the meta tag is enforced. A server-sent header would be the stronger way to set it; the page does not depend on one.
 - **REPL page: references.** The page refers only to its inline runner and to `examples-repl-wasm/example-N.wasm` by relative path. A test checks that it contains no URL and no other script, link, image or frame. Those wasm files are fetched by the page, which the CSP allows from its own origin.
 - **Static page and static block.** `page` escapes all example text and has no script, so none of the above applies to it. The examples block injected into rustdoc pages is the same escaped markup, with no script.
 
