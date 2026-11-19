@@ -18,6 +18,7 @@ std = []
 macros = ["dep:tpt-dev-dsl-macros"]
 
 [dependencies]
+tpt-dev-ast = { version = "0.0.0", path = "../tpt-dev-ast" }
 tpt-dev-dsl-macros = { version = "0.0.0", path = "../tpt-dev-dsl-macros", optional = true }
 
 [dev-dependencies]

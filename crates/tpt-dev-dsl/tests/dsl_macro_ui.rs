@@ -1,6 +1,6 @@
-#![cfg(feature = "macros")]
 //! Compile-time behaviour of `dsl!`: valid grammars expand, and bad grammars are
 //! rejected with an error at the offending token.
+#![cfg(feature = "macros")]
 #[test]
 fn ui() {
     let t = trybuild::TestCases::new();
