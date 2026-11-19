@@ -299,11 +299,11 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 
 ### tpt-dev-zk: Rust-to-zero-knowledge circuit transpiler
 - [x] S — *0.1.0 publish deferred to Phase 7*
-- [x] Circuit IR (decided: R1CS, with export to the circom `.r1cs` format; proof-system backends stay external) — *`Circuit` in `circuit.rs`; the field is 2^61 - 1, too small for real soundness (see README)*
+- [x] Circuit IR (decided: R1CS, with export to the circom `.r1cs` format; proof-system backends stay external) — *`Circuit` in `circuit.rs`; the field is BN254's scalar field (254-bit, Montgomery form)*
 - [x] Rust function front end (proc-macro) for the supported subset — *`#[circuit]` in the companion crate `tpt-dev-zk-macros` (host-only, excluded from the bare-metal CI build) reads ordinary `i64` functions and writes a `Ring`-generic circuit version. Unsupported syntax is a compile error (trybuild cases). Generic functions over `Ring` are also traced.*
 - [x] Transpile to circuit IR — *tracing: `+`, `-` add no constraint, a product of two wires adds one*
 - [x] Witness generation — *values are computed while tracing; `Circuit::witness` gives them in format order*
-- [x] Circuit export format — *iden3 `.r1cs` v1, checked by decoding its own output; not yet loaded by circom or snarkjs*
+- [x] Circuit export format — *iden3 `.r1cs` v1 and `.wtns` v2. snarkjs 0.7.4 reads the `.r1cs` as `bn-128` with the expected counts, and `wtns check` accepts the witness and rejects a corrupted one (see README)*
 - [x] Tests comparing circuit output with native Rust execution — *`circuit::tests::the_circuit_agrees_with_native_execution`*
 - [x] Document the supported language subset — *`README.md`, with limits*
 

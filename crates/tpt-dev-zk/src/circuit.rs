@@ -280,6 +280,11 @@ impl Circuit {
     pub fn witness(&self) -> Vec<F> {
         crate::r1cs::ordered_witness(&self.state.borrow())
     }
+
+    /// The witness in the binary `.wtns` format, for snarkjs.
+    pub fn to_wtns(&self) -> Vec<u8> {
+        crate::r1cs::encode_witness(&self.state.borrow())
+    }
 }
 
 #[cfg(test)]

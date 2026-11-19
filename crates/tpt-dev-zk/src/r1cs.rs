@@ -4,7 +4,8 @@
 //! the version, and three sections. Section 1 is the header, section 2 the
 //! constraints, and section 3 the wire-to-label map. Wires are renumbered in the
 //! order the format expects: the constant one, public outputs, public inputs,
-//! private inputs, then internal wires.
+//! private inputs, then internal wires. The field is BN254's scalar field, so
+//! each field element takes 32 bytes.
 //!
 //! The encoder is checked by decoding its own output in the tests. It has not
 //! been checked against circom or snarkjs in this environment.
@@ -12,10 +13,10 @@
 use alloc::vec::Vec;
 
 use crate::circuit::{Kind, State};
-use crate::field::{F, MODULUS};
+use crate::field::{F, MODULUS_LE};
 
 /// Bytes per field element in the file.
-const N8: u32 = 8;
+const N8: u32 = 32;
 
 /// The wire order the format expects, as the indices of the original wires.
 fn order(state: &State) -> Vec<usize> {
@@ -61,7 +62,7 @@ pub(crate) fn encode(state: &State) -> Vec<u8> {
 
     let mut header = Vec::new();
     header.extend_from_slice(&N8.to_le_bytes());
-    header.extend_from_slice(&MODULUS.to_le_bytes());
+    header.extend_from_slice(&MODULUS_LE);
     header.extend_from_slice(&n_wires.to_le_bytes());
     header.extend_from_slice(&count(Kind::Output).to_le_bytes());
     header.extend_from_slice(&count(Kind::PublicInput).to_le_bytes());
@@ -75,7 +76,7 @@ pub(crate) fn encode(state: &State) -> Vec<u8> {
             constraints.extend_from_slice(&(lc.len() as u32).to_le_bytes());
             for &(wire, coef) in lc {
                 constraints.extend_from_slice(&new_index[wire].to_le_bytes());
-                constraints.extend_from_slice(&coef.raw().to_le_bytes());
+                constraints.extend_from_slice(&coef.to_bytes_le());
             }
         }
     }
@@ -95,6 +96,27 @@ pub(crate) fn encode(state: &State) -> Vec<u8> {
     out
 }
 
+/// The witness in the binary `.wtns` format, version 2: a header with the field
+/// and the witness length, then one 32-byte value per wire in `.r1cs` order.
+pub(crate) fn encode_witness(state: &State) -> Vec<u8> {
+    let witness = ordered_witness(state);
+    let mut header = Vec::new();
+    header.extend_from_slice(&N8.to_le_bytes());
+    header.extend_from_slice(&MODULUS_LE);
+    header.extend_from_slice(&(witness.len() as u32).to_le_bytes());
+    let mut values = Vec::with_capacity(witness.len() * N8 as usize);
+    for v in &witness {
+        values.extend_from_slice(&v.to_bytes_le());
+    }
+    let mut out = Vec::new();
+    out.extend_from_slice(b"wtns");
+    out.extend_from_slice(&2u32.to_le_bytes());
+    out.extend_from_slice(&2u32.to_le_bytes());
+    section(&mut out, 1, &header);
+    section(&mut out, 2, &values);
+    out
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -107,8 +129,11 @@ mod tests {
         n_pub_out: u32,
         n_pub_in: u32,
         n_prv_in: u32,
-        constraints: Vec<[Vec<(u32, u64)>; 3]>,
+        constraints: Vec<Triple>,
     }
+
+    /// One constraint: the three linear combinations, as (wire, coefficient) lists.
+    type Triple = [Vec<(u32, [u8; 32])>; 3];
 
     fn u32_at(b: &[u8], at: usize) -> u32 {
         u32::from_le_bytes(b[at..at + 4].try_into().unwrap())
@@ -133,25 +158,30 @@ mod tests {
         assert_eq!(at, bytes.len());
         let (k1, header) = sections[0];
         assert_eq!(k1, 1);
+        // Header layout: n8 (4), prime (32), nWires (4), nPubOut (4), nPubIn (4),
+        // nPrvIn (4), nLabels (8), nConstraints (4).
         assert_eq!(u32_at(header, 0), N8);
-        assert_eq!(u64_at(header, 4), MODULUS);
-        let n_wires = u32_at(header, 12);
-        let n_pub_out = u32_at(header, 16);
-        let n_pub_in = u32_at(header, 20);
-        let n_prv_in = u32_at(header, 24);
-        let n_constraints = u32_at(header, 36) as usize;
+        assert_eq!(&header[4..36], &MODULUS_LE[..]);
+        let n_wires = u32_at(header, 36);
+        let n_pub_out = u32_at(header, 40);
+        let n_pub_in = u32_at(header, 44);
+        let n_prv_in = u32_at(header, 48);
+        let n_constraints = u32_at(header, 60) as usize;
 
         let body = sections[1].1;
         let mut pos = 0;
         let mut constraints = Vec::new();
         for _ in 0..n_constraints {
-            let mut triple: [Vec<(u32, u64)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+            let mut triple: [Vec<(u32, [u8; 32])>; 3] = [Vec::new(), Vec::new(), Vec::new()];
             for lc in triple.iter_mut() {
                 let terms = u32_at(body, pos) as usize;
                 pos += 4;
                 for _ in 0..terms {
-                    lc.push((u32_at(body, pos), u64_at(body, pos + 4)));
-                    pos += 12;
+                    let wire = u32_at(body, pos);
+                    let mut coef = [0u8; 32];
+                    coef.copy_from_slice(&body[pos + 4..pos + 36]);
+                    lc.push((wire, coef));
+                    pos += 36;
                 }
             }
             constraints.push(triple);
@@ -167,9 +197,26 @@ mod tests {
         }
     }
 
-    fn eval_decoded(witness: &[F], lc: &[(u32, u64)]) -> F {
-        lc.iter()
-            .fold(F::ZERO, |acc, &(i, c)| acc + F(c) * witness[i as usize])
+    fn eval_decoded(witness: &[F], lc: &[(u32, [u8; 32])]) -> F {
+        lc.iter().fold(F::ZERO, |acc, (i, c)| {
+            acc + F::from_bytes_le(c).unwrap() * witness[*i as usize]
+        })
+    }
+
+    #[test]
+    fn the_witness_file_has_the_field_and_the_witness_length() {
+        let c = Circuit::new();
+        let x = c.private_input(3);
+        let _ = c.output(&(x.clone() * x));
+        let w = c.to_wtns();
+        assert_eq!(&w[0..4], b"wtns");
+        assert_eq!(u32_at(&w, 4), 2);
+        assert_eq!(u32_at(&w, 8), 2);
+        // Section 1 begins at byte 12: type, then its size, then n8 and the prime.
+        assert_eq!(u32_at(&w, 12), 1);
+        assert_eq!(u32_at(&w, 24), N8);
+        assert_eq!(&w[28..60], &MODULUS_LE[..]);
+        assert_eq!(u32_at(&w, 60), c.num_wires() as u32);
     }
 
     #[test]
