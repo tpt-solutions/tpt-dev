@@ -11,9 +11,13 @@ mod invariant;
 mod rng;
 mod runner;
 mod solver_gen;
+mod transition;
 
 pub use generator::{Bools, Generator, IntRange, Pair, VecOf};
 pub use invariant::{Candidate, Verdict, infer, prove};
 pub use rng::{Rng, Seed};
 pub use runner::{Config, Failure, check, replay};
 pub use solver_gen::{ConstrainedGen, SetupError};
+pub use transition::{
+    Affine, Atom, Outcome, SearchConfig, SpecError, Transition, TransitionSystem, find_invariant,
+};

@@ -33,7 +33,7 @@ impl Candidate {
     }
 
     /// The value of the sum at `point`, or `None` on overflow.
-    fn at(&self, point: &[Rational]) -> Option<Rational> {
+    pub(crate) fn at(&self, point: &[Rational]) -> Option<Rational> {
         let mut acc = Rational::ZERO;
         for &(i, c) in &self.coeffs {
             let term = point
