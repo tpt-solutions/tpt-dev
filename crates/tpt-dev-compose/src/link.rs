@@ -9,9 +9,11 @@
 //! Component-level imports are resolved too, by name and kind, against the
 //! exports of the registered components. A component import may be bound only
 //! to a single export of its kind, with that name, across all registered
-//! components. The types of function and primitive value imports are compared
-//! where both sides decode, with parameter and result labels ignored. Other
-//! component imports are checked by name and kind only. The plan records these
+//! components. The types of function, value, type and instance imports are
+//! compared structurally where both sides can be followed (see
+//! [`crate::compare`]). An instance may export more than the importer asks for.
+//! A pair that cannot be followed, such as one involving a resource or an alias,
+//! is checked by name and kind only. The plan records these
 //! bindings as data. Nothing here instantiates a component either.
 //!
 //! Every core import kind is resolved: functions, tables, memories, globals and
@@ -26,9 +28,9 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt;
 
-use crate::component::{Component, ExternDesc, ExternKind};
+use crate::compare::desc_fits;
+use crate::component::{Component, ExternKind};
 use crate::module::{ExportKind, ImportDesc, Limits, Module};
-use crate::types::{FuncType, TypeDef, ValueType};
 
 /// Why a set of modules does not link.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -472,55 +474,6 @@ fn topological_order(deps: &[Vec<usize>]) -> Result<Vec<usize>, Vec<usize>> {
     } else {
         Err((0..n).filter(|&i| !placed[i]).collect())
     }
-}
-
-/// Whether a provider's descriptor fits an import's descriptor, as far as the
-/// two can be compared. A pair that cannot be compared is not refused.
-///
-/// A function is compared when both types decode. A primitive value is compared
-/// when both are primitives. Other pairs fit by name and kind alone.
-fn desc_fits(
-    want: &ExternDesc,
-    importer: &Component,
-    have: Option<&ExternDesc>,
-    provider: &Component,
-) -> bool {
-    match (want, have) {
-        (ExternDesc::Func(a), Some(ExternDesc::Func(b))) => {
-            match (importer.type_def(*a), provider.type_def(*b)) {
-                (Some(TypeDef::Func(x)), Some(TypeDef::Func(y))) => same_func(x, y),
-                _ => true,
-            }
-        }
-        (
-            ExternDesc::Value(ValueType::Primitive(p)),
-            Some(ExternDesc::Value(ValueType::Primitive(q))),
-        ) => p == q,
-        _ => true,
-    }
-}
-
-/// Whether two function types have the same parameter and result types. Labels
-/// are ignored. A type that names another type by index is not compared, since
-/// the index means something different in each component, so it is not refused.
-fn same_func(x: &FuncType, y: &FuncType) -> bool {
-    let plain = |f: &FuncType| {
-        f.params
-            .iter()
-            .chain(f.results.iter())
-            .all(|field| matches!(field.ty, ValueType::Primitive(_)))
-    };
-    if !plain(x) || !plain(y) {
-        return true;
-    }
-    x.params
-        .iter()
-        .map(|f| f.ty)
-        .eq(y.params.iter().map(|f| f.ty))
-        && x.results
-            .iter()
-            .map(|f| f.ty)
-            .eq(y.results.iter().map(|f| f.ty))
 }
 
 #[cfg(test)]

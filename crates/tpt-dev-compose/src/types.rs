@@ -1,9 +1,12 @@
 //! Component Model types: decoding the type section, and the canonical ABI's
 //! size, alignment and flattening for value types.
 //!
-//! [`decode_items`] reads the defined value types and function types of a
-//! component's type section. Instance, component, resource and module types
-//! are not decoded, so a section that holds one yields `None`.
+//! [`decode_items`] reads the type section of a component: the defined value
+//! types, function types, resource types, and the component and instance types
+//! with their declarations. Module types, async function types, and the value
+//! types this parser does not model (streams, futures, error contexts, fixed-size
+//! lists, maps) are not decoded, so a section that holds one yields `None`.
+//! Malformed bytes are a [`ParseError`], never a guess.
 //!
 //! A type reference is an index into the component's whole type index space,
 //! which also includes types from imports, aliases and earlier sections. This
@@ -19,8 +22,8 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::component::Reader;
-use crate::module::{ErrorKind, ParseError, ValType};
+use crate::component::{self, ComponentImport, ExternDesc, Reader};
+use crate::module::{self, ErrorKind, ParseError, ValType};
 
 /// A primitive value type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,6 +92,27 @@ pub struct FuncType {
     pub results: Vec<Field>,
 }
 
+/// A declaration inside a component or instance type.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Decl {
+    /// A core function type, declared with `core type`.
+    CoreType(module::FuncType),
+    /// A type definition. It adds one entry to the type index space of its
+    /// enclosing type.
+    Type(TypeDef),
+    /// An alias. It adds one entry to the index space of its sort.
+    Alias(component::Alias),
+    /// An import. Only component types have these.
+    Import(ComponentImport),
+    /// An export, with the type it is declared with. It adds no index.
+    Export {
+        /// The export name.
+        name: String,
+        /// The declared type of the export.
+        desc: ExternDesc,
+    },
+}
+
 /// One entry of a component's type section.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TypeDef {
@@ -121,6 +145,18 @@ pub enum TypeDef {
     Borrow(u32),
     /// A function type.
     Func(FuncType),
+    /// A fresh resource type: its core representation, and an optional
+    /// destructor given as a function index.
+    Resource {
+        /// The core representation.
+        rep: ValType,
+        /// The destructor's function index, if one is given.
+        dtor: Option<u32>,
+    },
+    /// A component type, with its declarations in order.
+    Component(Vec<Decl>),
+    /// An instance type, with its declarations in order.
+    Instance(Vec<Decl>),
 }
 
 /// The size and alignment of a value in linear memory, in bytes.
@@ -166,6 +202,9 @@ fn primitive(byte: u8) -> Option<Primitive> {
 
 // Decoding.
 
+/// The deepest nesting of component and instance types the parser accepts.
+pub(crate) const MAX_TYPE_DEPTH: usize = 16;
+
 /// Reads `count` type entries. Returns `None` if one of them is a kind this
 /// parser does not decode, since the bytes after it cannot then be located.
 pub(crate) fn decode_items(
@@ -174,7 +213,7 @@ pub(crate) fn decode_items(
 ) -> Result<Option<Vec<TypeDef>>, ParseError> {
     let mut out = Vec::with_capacity(count as usize);
     for _ in 0..count {
-        match decode_item(r)? {
+        match decode_item(r, 0)? {
             Some(def) => out.push(def),
             None => return Ok(None),
         }
@@ -182,12 +221,112 @@ pub(crate) fn decode_items(
     Ok(Some(out))
 }
 
-fn decode_item(r: &mut Reader<'_>) -> Result<Option<TypeDef>, ParseError> {
+/// Reads the declarations of a component type (`component` is true) or of an
+/// instance type. Returns `None` if one of them is not decoded.
+fn decode_decls(
+    r: &mut Reader<'_>,
+    depth: usize,
+    component: bool,
+) -> Result<Option<Vec<Decl>>, ParseError> {
+    if depth >= MAX_TYPE_DEPTH {
+        return Err(r.err(ErrorKind::NestingTooDeep));
+    }
+    let n = r.count()?;
+    let mut out = Vec::with_capacity(n as usize);
+    for _ in 0..n {
+        let decl = match r.byte()? {
+            // A core type. Only core function types are decoded.
+            0x00 => match core_functype(r)? {
+                Some(f) => Decl::CoreType(f),
+                None => return Ok(None),
+            },
+            0x01 => match decode_item(r, depth + 1)? {
+                Some(def) => Decl::Type(def),
+                None => return Ok(None),
+            },
+            0x02 => Decl::Alias(component::alias(r)?),
+            0x03 if component => Decl::Import(component::import(r)?),
+            0x04 => {
+                let name = component::extern_name(r)?;
+                let desc = component::extern_desc(r)?;
+                Decl::Export { name, desc }
+            }
+            other => return Err(r.err(ErrorKind::BadTypeEncoding(other))),
+        };
+        out.push(decl);
+    }
+    Ok(Some(out))
+}
+
+/// Reads a core function type: `0x60`, then the parameter and result vectors.
+/// Any other core type, such as a module type or a GC type, returns `None`.
+fn core_functype(r: &mut Reader<'_>) -> Result<Option<module::FuncType>, ParseError> {
+    if r.peek()? != 0x60 {
+        return Ok(None);
+    }
+    r.byte()?;
+    let Some(params) = core_valtypes(r)? else {
+        return Ok(None);
+    };
+    let Some(results) = core_valtypes(r)? else {
+        return Ok(None);
+    };
+    Ok(Some(module::FuncType { params, results }))
+}
+
+/// Reads a vector of core value types, or `None` if one is not modelled.
+fn core_valtypes(r: &mut Reader<'_>) -> Result<Option<Vec<ValType>>, ParseError> {
+    let n = r.count()?;
+    let mut out = Vec::with_capacity(n as usize);
+    for _ in 0..n {
+        match core_valtype(r)? {
+            Some(t) => out.push(t),
+            None => return Ok(None),
+        }
+    }
+    Ok(Some(out))
+}
+
+/// Reads a core value type. The reference types with heap types return `None`.
+fn core_valtype(r: &mut Reader<'_>) -> Result<Option<ValType>, ParseError> {
+    Ok(Some(match r.byte()? {
+        0x7F => ValType::I32,
+        0x7E => ValType::I64,
+        0x7D => ValType::F32,
+        0x7C => ValType::F64,
+        0x7B => ValType::V128,
+        0x70 => ValType::FuncRef,
+        0x6F => ValType::ExternRef,
+        0x63 | 0x64 => return Ok(None),
+        other => return Err(r.err(ErrorKind::BadValType(other))),
+    }))
+}
+
+fn decode_item(r: &mut Reader<'_>, depth: usize) -> Result<Option<TypeDef>, ParseError> {
     let tag = r.byte()?;
     if let Some(p) = primitive(tag) {
         return Ok(Some(TypeDef::Primitive(p)));
     }
     let def = match tag {
+        0x3F => {
+            let Some(rep) = core_valtype(r)? else {
+                return Ok(None);
+            };
+            let dtor = match r.byte()? {
+                0x00 => None,
+                0x01 => Some(r.u32()?),
+                other => return Err(r.err(ErrorKind::BadTypeEncoding(other))),
+            };
+            TypeDef::Resource { rep, dtor }
+        }
+        0x41 => match decode_decls(r, depth, true)? {
+            Some(decls) => TypeDef::Component(decls),
+            None => return Ok(None),
+        },
+        0x42 => match decode_decls(r, depth, false)? {
+            Some(decls) => TypeDef::Instance(decls),
+            None => return Ok(None),
+        },
         0x72 => TypeDef::Record(fields(r)?),
         0x71 => {
             let n = r.count()?;
@@ -240,9 +379,9 @@ fn decode_item(r: &mut Reader<'_>) -> Result<Option<TypeDef>, ParseError> {
             };
             TypeDef::Func(FuncType { params, results })
         }
-        // Instance, component, resource and module types, and the value types
-        // this parser does not model (streams, futures, error contexts, fixed
-        // lists), are left undecoded.
+        // Async function types, module types, and the value types this parser
+        // does not model (streams, futures, error contexts, fixed lists, maps)
+        // are left undecoded.
         _ => return Ok(None),
     };
     Ok(Some(def))
@@ -390,7 +529,10 @@ impl<'a> Abi<'a> {
             TypeDef::List(_) => Ok(Layout { size: 8, align: 4 }),
             TypeDef::Own(_) | TypeDef::Borrow(_) => Ok(Layout { size: 4, align: 4 }),
             TypeDef::Flags(names) => Ok(flags_layout(names.len())),
-            TypeDef::Func(_) => Err(AbiError::NotAValueType(index)),
+            TypeDef::Func(_)
+            | TypeDef::Resource { .. }
+            | TypeDef::Component(_)
+            | TypeDef::Instance(_) => Err(AbiError::NotAValueType(index)),
         }
     }
 
@@ -400,18 +542,31 @@ impl<'a> Abi<'a> {
         tys: impl Iterator<Item = &'t ValueType>,
         depth: usize,
     ) -> Result<Layout, AbiError> {
+        Ok(self.tuple(tys, depth)?.layout)
+    }
+
+    /// Lays out values in order, each at its alignment, and gives their offsets.
+    fn tuple<'t>(
+        &mut self,
+        tys: impl Iterator<Item = &'t ValueType>,
+        depth: usize,
+    ) -> Result<MemoryTuple, AbiError> {
         let mut size = 0usize;
         let mut align = 1usize;
+        let mut offsets = Vec::new();
         for t in tys {
             let l = self.layout_value(t, depth)?;
-            size = round_up(size, l.align)?
-                .checked_add(l.size)
-                .ok_or(AbiError::TooComplex)?;
+            let at = round_up(size, l.align)?;
+            offsets.push(at);
+            size = at.checked_add(l.size).ok_or(AbiError::TooComplex)?;
             align = align.max(l.align);
         }
-        Ok(Layout {
-            size: round_up(size, align)?,
-            align,
+        Ok(MemoryTuple {
+            layout: Layout {
+                size: round_up(size, align)?,
+                align,
+            },
+            offsets,
         })
     }
 
@@ -471,7 +626,10 @@ impl<'a> Abi<'a> {
             TypeDef::List(_) => Ok(vec![ValType::I32, ValType::I32]),
             TypeDef::Own(_) | TypeDef::Borrow(_) => Ok(vec![ValType::I32]),
             TypeDef::Flags(names) => Ok(vec![ValType::I32; names.len().div_ceil(32)]),
-            TypeDef::Func(_) => Err(AbiError::NotAValueType(index)),
+            TypeDef::Func(_)
+            | TypeDef::Resource { .. }
+            | TypeDef::Component(_)
+            | TypeDef::Instance(_) => Err(AbiError::NotAValueType(index)),
         }
     }
 
@@ -539,6 +697,116 @@ fn flags_layout(labels: usize) -> Layout {
             align: 4,
         },
     }
+}
+
+/// The most flat values a function's parameters may take before they are
+/// passed through memory instead.
+pub const MAX_FLAT_PARAMS: usize = 16;
+
+/// The most flat values a function's results may take before they are returned
+/// through memory instead (the 1-value rule).
+pub const MAX_FLAT_RESULTS: usize = 1;
+
+/// Which side of the boundary a function's core signature is for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Direction {
+    /// A lifted function: the component exports it, and core code calls it.
+    /// A spilled result is returned as a pointer.
+    Lift,
+    /// A lowered function: core code exports it, and the component imports it
+    /// through `canon lower`. A spilled result is written through a return
+    /// pointer, which is an extra final parameter.
+    Lower,
+}
+
+/// A tuple of values laid out in linear memory, as a spilled parameter list or
+/// result is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MemoryTuple {
+    /// The size and alignment of the whole tuple.
+    pub layout: Layout,
+    /// The byte offset of each value, in order.
+    pub offsets: Vec<usize>,
+}
+
+/// How a function's parameters and results cross the core boundary.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FuncAbi {
+    /// The core parameter types. A spilled parameter list is one `i32`, a
+    /// pointer to the tuple. A lowered function with a spilled result adds one
+    /// more `i32`, the return pointer, as its last parameter.
+    pub params: Vec<ValType>,
+    /// The core result types. A spilled result is one `i32` pointer when lifted,
+    /// and none when lowered (the value goes through the return pointer).
+    pub results: Vec<ValType>,
+    /// The parameters as a tuple in memory, when they are spilled.
+    pub param_memory: Option<MemoryTuple>,
+    /// The results as a tuple in memory, when they are spilled.
+    pub result_memory: Option<MemoryTuple>,
+    /// Whether the last parameter is a return pointer (lowered, spilled result).
+    pub return_pointer: bool,
+}
+
+/// The layout of a tuple of values in linear memory, in the canonical ABI's
+/// record layout: each value at its own alignment, in order.
+///
+/// `space` is the type index space that `tys` refer to.
+pub fn tuple_layout(space: &[TypeDef], tys: &[ValueType]) -> Result<MemoryTuple, AbiError> {
+    let mut abi = Abi {
+        space,
+        budget: BUDGET,
+    };
+    abi.tuple(tys.iter(), 0)
+}
+
+/// How a function type is passed at the core boundary, for one direction.
+///
+/// The parameters are spilled when their flat form has more than
+/// [`MAX_FLAT_PARAMS`] values. The results are spilled when their flat form has
+/// more than [`MAX_FLAT_RESULTS`] values. A spilled list is laid out as a tuple
+/// in memory, and [`FuncAbi`] gives its offsets.
+///
+/// `space` is the type index space that the function's types refer to.
+pub fn func_abi(space: &[TypeDef], ft: &FuncType, dir: Direction) -> Result<FuncAbi, AbiError> {
+    let mut abi = Abi {
+        space,
+        budget: BUDGET,
+    };
+    let param_tys = || ft.params.iter().map(|f| &f.ty);
+    let result_tys = || ft.results.iter().map(|f| &f.ty);
+
+    let mut params = abi.concat_flat(param_tys(), 0)?;
+    let flat_results = abi.concat_flat(result_tys(), 0)?;
+
+    let param_memory = if params.len() > MAX_FLAT_PARAMS {
+        params = vec![ValType::I32];
+        Some(abi.tuple(param_tys(), 0)?)
+    } else {
+        None
+    };
+
+    let mut return_pointer = false;
+    let (results, result_memory) = if flat_results.len() > MAX_FLAT_RESULTS {
+        let memory = abi.tuple(result_tys(), 0)?;
+        match dir {
+            Direction::Lift => (vec![ValType::I32], Some(memory)),
+            Direction::Lower => {
+                params.push(ValType::I32);
+                return_pointer = true;
+                (Vec::new(), Some(memory))
+            }
+        }
+    } else {
+        (flat_results, None)
+    };
+
+    Ok(FuncAbi {
+        params,
+        results,
+        param_memory,
+        result_memory,
+        return_pointer,
+    })
 }
 
 /// The size and alignment of a value type, in linear memory.
@@ -911,24 +1179,27 @@ mod tests {
 
     #[test]
     fn a_type_index_above_the_one_byte_range_decodes() {
-        // list<index 115>: 115 needs two bytes as a signed 33-bit integer.
-        let body: &[u8] = &[0x01, 0x70, 0xF3, 0x00];
+        // 116 bools, then list<index 115>: 115 needs two bytes as a signed
+        // 33-bit integer, and it names the bool at position 115, which is defined.
+        let mut body = vec![117u8];
+        body.extend(core::iter::repeat_n(0x7Fu8, 116));
+        body.extend_from_slice(&[0x70, 0xF3, 0x00]);
         let mut bytes = Vec::new();
         bytes.extend_from_slice(b"\0asm\x0d\0\x01\0");
         bytes.push(7);
         bytes.push(body.len() as u8);
-        bytes.extend_from_slice(body);
+        bytes.extend_from_slice(&body);
         let c = parse(&bytes).unwrap();
         assert_eq!(
-            c.sections[0].types.as_ref().unwrap()[0],
+            c.sections[0].types.as_ref().unwrap()[116],
             TypeDef::List(ValueType::Index(115))
         );
     }
 
     #[test]
     fn an_unsupported_type_kind_leaves_the_section_undecoded() {
-        // 0x42 is an instance type, which this parser does not decode.
-        let body: &[u8] = &[0x01, 0x42, 0x00];
+        // 0x50 is a core module type, which this parser does not decode.
+        let body: &[u8] = &[0x01, 0x50, 0x00];
         let mut bytes = Vec::new();
         bytes.extend_from_slice(b"\0asm\x0d\0\x01\0");
         bytes.push(7);

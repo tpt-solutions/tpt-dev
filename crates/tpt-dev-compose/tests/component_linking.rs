@@ -131,3 +131,67 @@ fn core_and_component_bindings_are_planned_separately() {
             .all(|b| b.kind != ExternKind::CoreModule)
     );
 }
+
+const LINK_PROVIDER_API: &[u8] = include_bytes!("fixtures/component/link_provider_api.wasm");
+const LINK_PROVIDER_WIDE: &[u8] = include_bytes!("fixtures/component/link_provider_wide.wasm");
+const LINK_IMPORTER_API: &[u8] = include_bytes!("fixtures/component/link_importer_api.wasm");
+const LINK_IMPORTER_API_WIDE_ARG: &[u8] =
+    include_bytes!("fixtures/component/link_importer_api_wide_arg.wasm");
+const LINK_IMPORTER_API_MISSING: &[u8] =
+    include_bytes!("fixtures/component/link_importer_api_missing.wasm");
+
+#[test]
+fn an_instance_import_links_to_a_provider_with_the_same_function_type() {
+    let provider = parse(LINK_PROVIDER_API).unwrap();
+    let importer = parse(LINK_IMPORTER_API).unwrap();
+    let mut r = Registry::new();
+    r.register_component("provider", &provider).unwrap();
+    r.register_component("importer", &importer).unwrap();
+    let plan = r.link().unwrap();
+    assert_eq!(plan.component_bindings.len(), 1);
+    assert_eq!(plan.component_bindings[0].kind, ExternKind::Instance);
+}
+
+#[test]
+fn an_instance_provider_may_export_more_than_the_importer_asks_for() {
+    let provider = parse(LINK_PROVIDER_WIDE).unwrap();
+    let importer = parse(LINK_IMPORTER_API).unwrap();
+    let mut r = Registry::new();
+    r.register_component("provider", &provider).unwrap();
+    r.register_component("importer", &importer).unwrap();
+    assert!(r.link().is_ok());
+}
+
+#[test]
+fn an_instance_export_with_a_different_parameter_type_is_a_mismatch() {
+    let provider = parse(LINK_PROVIDER_API).unwrap();
+    let importer = parse(LINK_IMPORTER_API_WIDE_ARG).unwrap();
+    let mut r = Registry::new();
+    r.register_component("provider", &provider).unwrap();
+    r.register_component("importer", &importer).unwrap();
+    assert_eq!(
+        r.link(),
+        Err(LinkError::ComponentTypeMismatch {
+            importer: "importer".into(),
+            name: "api".into(),
+            kind: ExternKind::Instance,
+        })
+    );
+}
+
+#[test]
+fn an_instance_import_of_an_export_the_provider_lacks_is_a_mismatch() {
+    let provider = parse(LINK_PROVIDER_API).unwrap();
+    let importer = parse(LINK_IMPORTER_API_MISSING).unwrap();
+    let mut r = Registry::new();
+    r.register_component("provider", &provider).unwrap();
+    r.register_component("importer", &importer).unwrap();
+    assert_eq!(
+        r.link(),
+        Err(LinkError::ComponentTypeMismatch {
+            importer: "importer".into(),
+            name: "api".into(),
+            kind: ExternKind::Instance,
+        })
+    );
+}

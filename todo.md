@@ -110,7 +110,7 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [x] Simplex-based linear real arithmetic theory solver — *Dutertre–de Moura with delta-rationals, Bland's rule (`simplex.rs`)*
 - [x] SAT core (CDCL) with DPLL(T) integration — *lazy: theory checked on full assignments; blocking clauses from simplex conflicts (`sat.rs`)*
 - [x] Model extraction
-- [ ] Unsat core / proof output — *unsat core (`unsat_core`, deletion-based) and Farkas certificates for conjunctive unsat (`unsat_certificate`, checked by `check_farkas`). No proofs for Boolean-structured unsat.*
+- [x] Unsat core / proof output — *unsat core (`unsat_core`, deletion-based); Farkas certificates for conjunctive unsat (`unsat_certificate`, `check_farkas`); DRUP-style proofs for Boolean-structured unsat (`unsat_proof`, checked by `check_proof`). The Tseitin encoder is trusted, not checked.*
 - [x] Incremental solving (push/pop) — *clause database, learned clauses and simplex tableau persist across checks; checked against from-scratch solves on random push/pop sequences. No clause deletion.*
 - [ ] Cross-check against reference results on a test corpus (SMT-LIB QF_LRA benchmarks) — *randomized oracle (DNF + Fourier–Motzkin) passes about 50k random cases (several seeds and depths) with model checks; SMT-LIB corpus not yet available offline*
 - [x] Performance benchmarks and optimisation pass — *`examples/bench.rs`; tableau reuse cut disjunctive v=20 from 579 ms to 119 ms. Branch selection and rational gcd remain hotspots.*
@@ -184,7 +184,7 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 ### tpt-dev-dsl: domain-specific language framework
 - [x] S — *0.1.0 publish deferred to Phase 7*
 - [x] Grammar definition API — *`Grammar`, `Rule`, `Expr` (PEG), checked at compile time in a `const`*
-- [ ] Parser generation built on tpt-dev-ast — *ast has a generic `Lexer`/`Feed` hook with `JsonLexer` as default. A packrat matcher (`parse_packrat`/`recognise_packrat`, caller-owned `Memo<N>`, `MemoFull` on overflow) agrees with the interpreter on random arithmetic input and random grammars. Not yet driven by the ast streaming lexer.*
+- [ ] Parser generation built on tpt-dev-ast — *`PackratStream` feeds byte chunks through tpt-dev-ast `Feed` and `GrammarLexer`, and matches after `finish`. Equal to `parse_packrat` on random chunked arithmetic input. Matching is not incremental: the terminal buffer and the tree are still buffered.*
 - [x] Macro embedding (`dsl!{...}`) with good error spans — *`tpt-dev-dsl-macros`, re-exported as `tpt_dev_dsl::dsl` behind feature `macros`; trybuild compile-fail tests in `tests/ui`.*
 - [x] Example DSL as a reference — *arithmetic grammar in `tests/arith.rs`, described in the README*
 
@@ -318,9 +318,9 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 ### tpt-dev-compose: Wasm Component Model linker
 - [x] S — *0.1.0 publish deferred to Phase 7*
 - [x] Wasm binary/component parser (pure Rust) — *core modules in `module.rs`; components in `component.rs`: sections (id, offset, size, vector item counts), custom names, embedded core modules and nested components to depth 16. Vector item contents are not decoded.*
-- [ ] Component Model types and canonical ABI — *partial: defined value and function types decoded, with size, align and flat lowering. Instance, component and resource types are not decoded; the >16-parameter spill is not implemented.*
+- [ ] Component Model types and canonical ABI — *instance, component, resource and function types, aliases and structural comparison; flat-parameter spill and memory layout (`func_abi`), checked with `wasm-tools validate`. Open: module, async, stream, future and fixed-list types. Layouts are hand-derived.*
 - [ ] Instance linking and composition at runtime — *partial: `Registry::link` plans core-module and component-level bindings (kind-tagged `ComponentBinding`, `component_order`). Planning only; no instantiation or execution.*
-- [ ] Import/export resolution and validation — *partial: component import and export sections decoded for core module, func, value, type, instance and component kinds, with upper-bound index checks and unique names. All core import kinds are type-checked. Alias, canon and instance sections are not decoded, so index bounds are not exact.*
+- [ ] Import/export resolution and validation — *component imports and exports decoded for all kinds; index bounds exact and positional except the function spaces. Instance types compared structurally. Open: canonical section decode, and outer aliases inside types are not bounds-checked.*
 - [x] Conformance tests against sample components — *`tests/component.rs` checks ids, offsets, sizes and counts against `wasm-tools dump` for three fixtures (one nested); `wasm-tools validate` accepts them*
 
 ### tpt-dev-sim: cycle-accurate hardware simulator
