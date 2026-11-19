@@ -1,6 +1,6 @@
 [package]
 name = "tpt-dev-profiler"
-description = "Zero-overhead sampling profiler with function-level attribution"
+description = "Sampling profiler with function-level attribution and bounded per-sample cost"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

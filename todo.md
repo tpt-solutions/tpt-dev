@@ -249,13 +249,13 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [ ] Hosting-compatible output for docs.rs
 - [ ] Sandboxing/security review
 
-### tpt-dev-profiler: zero-overhead sampling profiler
-- [ ] S
-- [ ] Sampling via timer/interrupt hook
-- [ ] Function-level attribution without external `perf`
-- [ ] Fixed-size sample buffer
-- [ ] Report/flamegraph output
-- [ ] Overhead measurement showing negligible cost
+### tpt-dev-profiler: sampling profiler (bounded per-sample cost)
+- [x] S — *0.1.0 publish deferred to Phase 7*
+- [x] Sampling via timer/interrupt hook — *`Sampler::record` is lock-free and does not allocate; the timer and interrupt wiring is the board's, not the crate's*
+- [x] Function-level attribution without external `perf` — *`Symbols`: a caller-supplied sorted table with the code end; `Report` gives self and inclusive counts*
+- [x] Fixed-size sample buffer — *`Sampler<N, D>`: atomics, append-only, drop-and-count when full; a reader skips unpublished slots*
+- [x] Report/flamegraph output — *text table and folded stacks for `inferno`/`flamegraph.pl`; no SVG is rendered in the crate*
+- [ ] Overhead measurement showing negligible cost — *`examples/overhead.rs` measures ~9 ns per sample on the host (release, 5-frame stack; 0.009% of a core at 10 kHz). Not measured on a target, so "negligible" is not yet shown for hardware.*
 
 ### tpt-dev-bench: statistical benchmarking & CI gating
 - [x] S — *0.1.0 publish deferred to Phase 7*
