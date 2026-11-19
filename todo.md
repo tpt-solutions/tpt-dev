@@ -316,12 +316,12 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [ ] Safety review of secure/non-secure boundary code — *the README lists the review points for the modelled rules; the review of hardware boundary code waits for a backend*
 
 ### tpt-dev-compose: Wasm Component Model linker
-- [ ] S
-- [ ] Wasm binary/component parser (pure Rust)
-- [ ] Component Model type system and canonical ABI
-- [ ] Instance linking and composition at runtime
-- [ ] Import/export resolution and validation
-- [ ] Conformance tests against sample components
+- [x] S — *0.1.0 publish deferred to Phase 7*
+- [ ] Wasm binary/component parser (pure Rust) — *partial: core-module parser (`module.rs`), with section order, lengths and counts checked. The component binary format is not parsed.*
+- [ ] Component Model type system and canonical ABI — *not started*
+- [ ] Instance linking and composition at runtime — *partial: `Registry::link` plans instantiation order and bindings for function imports. No instantiation or execution.*
+- [ ] Import/export resolution and validation — *partial: function imports are resolved and signature-checked, with cycles reported. Other import kinds are refused, and some indices are not bounds-checked.*
+- [ ] Conformance tests against sample components — *partial: core-module fixtures assembled with `wasm-tools` and validated by it; no component fixtures yet*
 
 ### tpt-dev-sim: cycle-accurate hardware simulator
 - [x] S — *0.1.0 publish deferred to Phase 7*
