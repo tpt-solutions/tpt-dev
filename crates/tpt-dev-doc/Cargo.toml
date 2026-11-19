@@ -19,3 +19,8 @@ workspace = true
 
 [package.metadata.docs.rs]
 all-features = true
+
+[[bin]]
+name = "tpt-dev-doc-site"
+path = "src/bin/tpt-dev-doc-site.rs"
+required-features = ["std"]

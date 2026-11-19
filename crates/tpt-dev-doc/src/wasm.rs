@@ -133,6 +133,7 @@ export async function runExample(wasmUrl, timeoutMs = 5000) {
 mod tests {
     use super::*;
     use crate::extract::extract;
+    use std::eprintln;
 
     fn first(md: &str) -> Example {
         extract(md).into_iter().next().unwrap()
@@ -195,5 +196,58 @@ mod tests {
         let dir = std::env::temp_dir().join("tpt-dev-doc-wasm-refuse");
         let err = compile(&first("```text\nx\n```\n"), &dir, &dir.join("x.wasm")).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    /// Loads a module, checks that it imports nothing, and calls `run`.
+    const NODE_CHECK: &str = r#"import { readFileSync } from "node:fs";
+const module = await WebAssembly.compile(readFileSync(process.argv[2]));
+if (WebAssembly.Module.imports(module).length !== 0) {
+  console.error("module has imports");
+  process.exit(3);
+}
+const instance = await WebAssembly.instantiate(module, {});
+instance.exports.run();
+console.log("ok");
+"#;
+
+    fn node_available() -> bool {
+        Command::new("node")
+            .arg("--version")
+            .output()
+            .is_ok_and(|out| out.status.success())
+    }
+
+    /// Compiles `md` and runs it under Node. Returns whether Node exited with
+    /// success, and what it printed.
+    fn run_under_node(name: &str, md: &str) -> (bool, String) {
+        let dir =
+            std::env::temp_dir().join(format!("tpt-dev-doc-node-{}-{name}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let wasm = dir.join("example.wasm");
+        let script = dir.join("check.mjs");
+        let compiled = compile(&first(md), &dir, &wasm);
+        fs::write(&script, NODE_CHECK).unwrap();
+        let output = Command::new("node").arg(&script).arg(&wasm).output();
+        let _ = fs::remove_dir_all(&dir);
+        compiled.unwrap();
+        let output = output.unwrap();
+        (
+            output.status.success(),
+            String::from_utf8_lossy(&output.stdout).into_owned(),
+        )
+    }
+
+    #[test]
+    fn examples_run_under_node_when_node_is_present() {
+        if !node_available() {
+            eprintln!("SKIPPED: node is not on the PATH; the Node check did not run");
+            return;
+        }
+        let (passed, stdout) = run_under_node("pass", "```rust\nassert_eq!(2 + 2, 4);\n```\n");
+        assert!(passed, "a passing example must return");
+        assert_eq!(stdout.trim(), "ok");
+
+        let (failed, _) = run_under_node("fail", "```rust\nassert_eq!(2 + 2, 5);\n```\n");
+        assert!(!failed, "a failing assert must trap");
     }
 }
