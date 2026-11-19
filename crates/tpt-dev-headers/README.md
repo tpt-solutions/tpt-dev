@@ -24,6 +24,24 @@ let header = generate(src, &Options { guard: "DEMO_H".into() }).unwrap();
 
 `tests/golden.rs` generates a header for `tests/fixtures/api.rs` and compares it with the frozen `api.h`. Run with `BLESS=1` to update the frozen file after reviewing the change.
 
+## Command line
+
+```text
+tpt-dev-headers <SOURCE.rs> <GUARD> <OUTPUT.h>
+```
+
+Exit codes: `0` the header was written or is already up to date, `1` the header could not be generated or written, `2` the arguments were wrong. The output file is rewritten only when its contents change.
+
+## Build scripts
+
+`tpt_dev_headers::build::write_header(source, out, guard)` does the same as the command, and `rerun_if_changed` tells Cargo to rerun the build script when the source changes:
+
+```text
+let src = Path::new("src/ffi.rs");
+rerun_if_changed(src);
+write_header(src, Path::new("include/ffi.h"), "FFI_H")?;
+```
+
 ## Type mapping
 
 | Rust | C |
@@ -38,7 +56,7 @@ let header = generate(src, &Options { guard: "DEMO_H".into() }).unwrap();
 
 ## Limits
 
-- **Not compiled in CI yet.** The generated headers are checked against a frozen golden file. The check that they compile under a C compiler is not wired up, because the environment has no C compiler.
+- **C compile check runs only in CI.** The golden file checks the header text. The `c-headers` job in CI generates a header from `tpt-dev-ffi`'s test library and compiles `tests/c/client.c` with `gcc -std=c99 -Wall -Werror`. It has not been run locally, because the development machine has no C compiler.
 - **Unsupported types are errors.** Arrays, tuples and generics are rejected rather than guessed.
 - **Enums use prefixed names.** Variants are emitted as `Enum_Variant`, and discriminants must be integer literals.
 - **Parameter names of function-pointer types are dropped.**

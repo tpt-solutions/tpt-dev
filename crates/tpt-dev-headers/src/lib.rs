@@ -6,6 +6,8 @@
 
 #![doc = include_str!("../README.md")]
 
+pub mod build;
+
 use std::fmt::Write as _;
 
 use syn::{
@@ -31,6 +33,8 @@ impl std::fmt::Display for Error {
         f.write_str(&self.message)
     }
 }
+
+impl std::error::Error for Error {}
 
 fn fail<T>(message: impl Into<String>) -> Result<T, Error> {
     Err(Error {

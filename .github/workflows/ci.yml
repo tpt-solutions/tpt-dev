@@ -60,3 +60,26 @@ jobs:
         env:
           RUSTFLAGS: --cfg loom
         run: cargo test --release -p tpt-dev-async -p tpt-dev-lock -p tpt-dev-trace --test loom
+
+  # Generates a C header from the C-ABI surface of tpt-dev-ffi's test library
+  # and compiles a C client against it with warnings as errors. The client is
+  # compile-only (-c): it is never linked or run.
+  #
+  # NOT RUN in the authoring environment: that machine has no C compiler, so
+  # this job has not been executed. Only the YAML syntax was checked.
+  c-headers:
+    name: C headers compile (gcc)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install gcc
+        run: sudo apt-get update && sudo apt-get install -y gcc
+      - name: Generate header from the FFI test library
+        run: |
+          mkdir -p target/c-headers
+          cargo run -q -p tpt-dev-headers --bin tpt-dev-headers -- \
+            crates/tpt-dev-ffi/tests/c_library.rs TPT_COUNTER_H target/c-headers/counter.h
+      - name: Compile the C client with -Werror
+        run: |
+          gcc -std=c99 -Wall -Werror -I target/c-headers \
+            -c crates/tpt-dev-headers/tests/c/client.c -o target/c-headers/client.o
