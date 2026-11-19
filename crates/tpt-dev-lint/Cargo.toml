@@ -13,8 +13,8 @@ categories = ["development-tools"]
 # A host tool: it reads and parses source files, so it is std and excluded from the bare-metal build.
 
 [dependencies]
-syn = { version = "2", features = ["full", "parsing", "visit", "extra-traits"] }
-proc-macro2 = { version = "1", features = ["span-locations"] }
+syn = { workspace = true, features = ["full", "parsing", "visit", "extra-traits"] }
+proc-macro2 = { workspace = true, features = ["span-locations"] }
 
 [lints]
 workspace = true

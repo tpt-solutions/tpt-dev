@@ -15,7 +15,7 @@ default = []
 std = []
 
 [target.'cfg(loom)'.dependencies]
-loom = "0.7"
+loom.workspace = true
 
 [dev-dependencies]
 trybuild = "1"

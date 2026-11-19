@@ -47,5 +47,16 @@ jobs:
       - name: Build workspace for bare metal
         run: cargo build --workspace --exclude tpt-dev-contract --exclude tpt-dev-mock-macros --exclude tpt-dev-zk-macros --exclude tpt-dev-dep --exclude tpt-dev-headers --exclude tpt-dev-lint --target thumbv7em-none-eabihf
 
-  # Loom concurrency tests for Group 3 crates (async, trace, lock, mem) are
-  # added once those crates have implementations. Not wired up yet.
+  # Loom concurrency tests for the Group 3 crates that have them. tpt-dev-mem
+  # has no concurrent code, so it has no loom tests. Release mode keeps the
+  # trace model (about 200 s locally) within the time budget.
+  loom:
+    name: Loom concurrency tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run loom tests (async, lock, trace)
+        env:
+          RUSTFLAGS: --cfg loom
+        run: cargo test --release -p tpt-dev-async -p tpt-dev-lock -p tpt-dev-trace --test loom

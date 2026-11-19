@@ -18,7 +18,7 @@ std = []
 tpt-dev-trace = { version = "0.0.0", path = "../tpt-dev-trace" }
 
 [target.'cfg(loom)'.dependencies]
-loom = "0.7"
+loom.workspace = true
 
 [lints]
 workspace = true

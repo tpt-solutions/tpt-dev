@@ -18,7 +18,7 @@ std = []
 tpt-dev-lock = { version = "0.0.0", path = "../tpt-dev-lock" }
 
 [target.'cfg(loom)'.dependencies]
-loom = "0.7"
+loom.workspace = true
 
 [lints]
 workspace = true

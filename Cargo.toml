@@ -10,6 +10,12 @@ license = "MIT OR Apache-2.0"
 authors = ["TPT Solutions"]
 repository = "https://github.com/tpt-solutions/tpt-dev"
 
+[workspace.dependencies]
+loom = "0.7"
+proc-macro2 = "1"
+quote = "1"
+syn = "2"
+
 [workspace.lints.rust]
 unsafe_code = "deny"
 missing_docs = "warn"
