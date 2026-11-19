@@ -1,0 +1,7 @@
+error[E0599]: no method named `start` found for struct `Session<'_, Nothing, Closed>` in the current scope
+  --> tests/ui/start_closed.rs:18:20
+   |
+18 |     let _ = closed.start();
+   |                    ^^^^^ method not found in `Session<'_, Nothing, Closed>`
+   |
+   = note: the method was found for `Session<'b, B, Open>`

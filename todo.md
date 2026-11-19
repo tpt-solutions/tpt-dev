@@ -217,12 +217,12 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [ ] Compile generated headers with a C compiler in CI — *not done: no C compiler is available here, and the CI job is not written*
 
 ### tpt-dev-ffi: zero-copy FFI state machine framework
-- [ ] S
-- [ ] Typestate API for stateful C lifetimes
-- [ ] Ownership and borrow rules at the FFI boundary
-- [ ] Handle/opaque-pointer helpers with validation
-- [ ] Integration with tpt-dev-headers and tpt-dev-automata
-- [ ] Example wrapping a stateful C library
+- [x] S — *0.1.0 publish deferred to Phase 7*
+- [x] Typestate API for stateful C lifetimes — *`Closed`/`Open`/`Streaming` sessions; transitions consume the session (`session.rs`); compile-fail case
+- [ ] Ownership and borrow rules at the FFI boundary — *partial: the session owns the object and frees it on drop; buffers are borrowed for one call (`with`); no zero-copy views that outlive a call*
+- [x] Handle/opaque-pointer helpers with validation — *`Handle<T>` is non-null and typed*
+- [ ] Integration with tpt-dev-headers and tpt-dev-automata — *not done*
+- [x] Example wrapping a stateful C library — *`tests/c_library.rs`: a Rust library exported through `extern "C"`; no C compiler is available, so no real C was compiled*
 
 ### tpt-dev-lint: custom project-specific linting (no compiler plugins)
 - [x] S — *0.1.0 publish deferred to Phase 7*
