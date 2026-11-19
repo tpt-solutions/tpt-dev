@@ -184,8 +184,8 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 ### tpt-dev-dsl: domain-specific language framework
 - [x] S — *0.1.0 publish deferred to Phase 7*
 - [x] Grammar definition API — *`Grammar`, `Rule`, `Expr` (PEG), checked at compile time in a `const`*
-- [ ] Parser generation built on tpt-dev-ast — *ast has a generic `Lexer`/`Feed` hook with `JsonLexer` as default (done). The DSL streaming machine is not done: the arithmetic grammar needs PEG backtracking over spaces, which one-token lookahead cannot reproduce. Needs bounded backtracking or a memo; the attempt was removed.*
-- [ ] Macro embedding (`dsl!{...}`) with good error spans — *not done: needs a proc-macro crate, which has not been added*
+- [ ] Parser generation built on tpt-dev-ast — *ast has a generic `Lexer`/`Feed` hook with `JsonLexer` as default. A packrat matcher (`parse_packrat`/`recognise_packrat`, caller-owned `Memo<N>`, `MemoFull` on overflow) agrees with the interpreter on random arithmetic input and random grammars. Not yet driven by the ast streaming lexer.*
+- [x] Macro embedding (`dsl!{...}`) with good error spans — *`tpt-dev-dsl-macros`, re-exported as `tpt_dev_dsl::dsl` behind feature `macros`; trybuild compile-fail tests in `tests/ui`.*
 - [x] Example DSL as a reference — *arithmetic grammar in `tests/arith.rs`, described in the README*
 
 ### tpt-dev-codegen: build-time code generation
@@ -244,8 +244,8 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 ### tpt-dev-doc: interactive, runnable documentation
 - [x] S — *0.1.0 publish deferred to Phase 7*
 - [x] Extract examples from doc comments — *`extract` reads fenced blocks with rustdoc's tags and hidden lines; `doc_comments` takes `///` and `//!` text from source*
-- [ ] Embedded live REPL for running examples (decided: examples compiled to Wasm and run client-side in the browser, no server) — *`wasm::compile` and `wasm::RUNNER_JS` built; `wasm32-unknown-unknown` installed. Checked under Node 22 (pass returns, failing assert traps). Open: a page wiring them, a browser test of the Worker timeout, and a sandboxing re-review before shipping.*
-- [ ] Rustdoc integration (HTML injection) — *`site::inject_into_rustdoc` is tested on a rustdoc-shaped temp tree. A post-`cargo doc` step (xtask or binary) must call it, since build.rs output is overwritten by rustdoc.*
+- [x] Embedded live REPL for running examples (decided: examples compiled to Wasm and run client-side in the browser, no server) — *`site::write_repl_page` generates a separate page that loads the Wasm from relative paths; Wasm checked under Node 22. Not browser-tested: Worker timeout and CSP. Needs HTTP serving (file:// fails).*
+- [x] Rustdoc integration (HTML injection) — *`tpt-dev-doc-site` binary (`site::run_post_doc_step`) runs after `cargo doc`; tested on a rustdoc-shaped temp tree. Build.rs output is overwritten by rustdoc, so it must be a post-step.*
 - [x] Hosting-compatible output for docs.rs — *static only (decided); `site::write_examples_page` plus a test asserting no script, frame, form, image, link or URL. A build step must still call it.*
 - [x] Sandboxing/security review — *README section: nothing executes code yet; the review must be repeated when the Wasm runner lands*
 
@@ -319,8 +319,8 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [x] S — *0.1.0 publish deferred to Phase 7*
 - [x] Wasm binary/component parser (pure Rust) — *core modules in `module.rs`; components in `component.rs`: sections (id, offset, size, vector item counts), custom names, embedded core modules and nested components to depth 16. Vector item contents are not decoded.*
 - [ ] Component Model types and canonical ABI — *partial: defined value and function types decoded, with size, align and flat lowering. Instance, component and resource types are not decoded; the >16-parameter spill is not implemented.*
-- [ ] Instance linking and composition at runtime — *partial: `Registry::link` returns order and bindings for every core import kind. No instantiation or execution (no interpreter). Component-level composition not covered.*
-- [ ] Import/export resolution and validation — *partial: all core-module import kinds are type-checked and all export and index bounds are checked. Component-level import and export kinds are not resolved.*
+- [ ] Instance linking and composition at runtime — *partial: `Registry::link` plans core-module and component-level bindings (kind-tagged `ComponentBinding`, `component_order`). Planning only; no instantiation or execution.*
+- [ ] Import/export resolution and validation — *partial: component import and export sections decoded for core module, func, value, type, instance and component kinds, with upper-bound index checks and unique names. All core import kinds are type-checked. Alias, canon and instance sections are not decoded, so index bounds are not exact.*
 - [x] Conformance tests against sample components — *`tests/component.rs` checks ids, offsets, sizes and counts against `wasm-tools dump` for three fixtures (one nested); `wasm-tools validate` accepts them*
 
 ### tpt-dev-sim: cycle-accurate hardware simulator
