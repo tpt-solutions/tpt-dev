@@ -20,7 +20,7 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [x] Create GitHub org `tpt-solutions` and repo `tpt-dev` — *repo exists at `origin` (verified with `git ls-remote`)*
 - [x] Initialise git repo and `.gitignore`
 - [x] Root `Cargo.toml`: workspace members `crates/*`, `[workspace.package]` (license `MIT OR Apache-2.0`, authors TPT Solutions, edition, repository, rust-version)
-- [ ] `[workspace.dependencies]` with shared dependency definitions — *deferred: cargo warns about unused entries, so add them with the first proc-macro crate (syn/quote/proc-macro2)*
+- [x] `[workspace.dependencies]` with shared dependency definitions — *`loom`, `proc-macro2`, `quote`, `syn`; member crates use `workspace = true` and keep their own feature lists*
 - [x] Shared `[workspace.lints]` (forbid/deny unsafe where possible, clippy settings) — *`unsafe_code = deny`, not `forbid`, so a crate can opt in later with a SAFETY comment*
 - [x] `rust-toolchain.toml` pinning stable Rust, with the `thumbv7em-none-eabihf` target
 - [x] Document the MSRV policy (decided: latest stable minus 2 releases; MSRV bumps only in minor versions and are noted in the changelog) — *in CONTRIBUTING.md; `rust-version = 1.98`*
@@ -42,7 +42,7 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [x] Workflow: license check (`cargo deny check licenses`), fails on any Apache-only or GPL dependency
 - [x] Workflow: `cargo test --workspace`
 - [x] Workflow: no_std compile check — *uses `cargo build --workspace --target thumbv7em-none-eabihf`; `cargo test --target thumbv7em…` cannot work because test harnesses need std*
-- [ ] Workflow: loom concurrency tests for all Group 3 crates (async, trace, lock, mem) — *deferred until those crates have code*
+- [x] Workflow: loom concurrency tests for Group 3 crates (async, trace, lock) — *`loom` job in `ci.yml`; mem has no concurrent code, so no loom tests. Passes locally (trace takes about 200 s)*
 - [x] Workflow: release pipeline using `cargo-release` — *`.github/workflows/release.yml`, manual dispatch, dry run by default*
 - [x] Configure `cargo-release` (`cargo release patch --workspace --execute`: version bump, git tags, publish in dependency order) — *`release.toml`, shared version*
 - [x] Configure `docs.rs` metadata per crate (`[package.metadata.docs.rs]`)
@@ -105,21 +105,21 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 ### tpt-dev-solver: pure-Rust QF_LRA SMT solver
 - [x] S — *0.1.0 publish deferred to Phase 7*
 - [x] Rational arithmetic type (decided: checked `i128` numerator/denominator, no external bignum; overflow returns `Unknown`, never a wrong answer) — *`rational.rs`; comparison is overflow-free (continued fractions)*
-- [ ] Term/formula representation (arena-allocated, fixed-capacity option) — *arena is `alloc`-backed (`term.rs`); the fixed-capacity option is not done*
+- [x] Term/formula representation (arena-allocated, fixed-capacity option) — *heap arena plus an allocation-free `FixedArena`; the search itself still uses `alloc`*
 - [x] SMT-LIB 2 parser for the QF_LRA subset — *`smt.rs`: declare, assert, check-sat, get-model, push/pop, exit; nonlinear terms rejected*
 - [x] Simplex-based linear real arithmetic theory solver — *Dutertre–de Moura with delta-rationals, Bland's rule (`simplex.rs`)*
 - [x] SAT core (CDCL) with DPLL(T) integration — *lazy: theory checked on full assignments; blocking clauses from simplex conflicts (`sat.rs`)*
 - [x] Model extraction
-- [ ] Unsat core / proof output — *minimal unsat core done (`unsat_core`, deletion-based); proof output not done*
-- [ ] Incremental solving (push/pop) — *push/pop scope the assertions, but every check re-solves from scratch; not yet truly incremental*
+- [ ] Unsat core / proof output — *unsat core (`unsat_core`, deletion-based) and Farkas certificates for conjunctive unsat (`unsat_certificate`, checked by `check_farkas`). No proofs for Boolean-structured unsat.*
+- [x] Incremental solving (push/pop) — *clause database, learned clauses and simplex tableau persist across checks; checked against from-scratch solves on random push/pop sequences. No clause deletion.*
 - [ ] Cross-check against reference results on a test corpus (SMT-LIB QF_LRA benchmarks) — *randomized oracle (DNF + Fourier–Motzkin) passes about 50k random cases (several seeds and depths) with model checks; SMT-LIB corpus not yet available offline*
-- [ ] Performance benchmarks and optimisation pass
-- [ ] `no_std` + `alloc` support, with a bounded-memory mode — *`no_std` + `alloc` builds for `thumbv7em`; bounded-memory mode not done*
+- [x] Performance benchmarks and optimisation pass — *`examples/bench.rs`; tableau reuse cut disjunctive v=20 from 579 ms to 119 ms. Branch selection and rational gcd remain hotspots.*
+- [x] `no_std` + `alloc` support, with a bounded-memory mode — *`no_std` + `alloc` builds for `thumbv7em`; `Budget` (formula nodes, clauses, pivots) returns Unknown. Encoder recursion depth is not capped.*
 
 ### tpt-dev-contract: `#[requires]` / `#[ensures]` macros
 - [x] S — *0.1.0 publish deferred to Phase 7*
 - [x] Proc-macro crate (syn/quote/proc-macro2) — *`proc-macro = true`; host only, so CI excludes it from the bare-metal build*
-- [ ] Parse `requires`, `ensures`, and `old()` expressions — *`requires` and `ensures` parse; `old()` is not supported yet*
+- [x] Parse `requires`, `ensures`, and `old()` expressions — *`old(x)` is the entry snapshot in both the solver and run-time checks; it must be a Copy integer parameter; `old` in `requires` is rejected*
 - [x] Translate the arithmetic subset to tpt-dev-solver queries — *`translate.rs`: linear integer arithmetic and booleans*
 - [x] Compile-time proof of contracts where decidable; clear compile errors on counterexamples — *proves `ensures` for straight-line linear bodies; refutations with integer models become compile errors naming the inputs*
 - [x] Fall back to runtime checks (debug-only) for non-provable contracts — *`requires` is always checked on entry; unproven `ensures` are checked on return*
@@ -130,15 +130,15 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [x] S — *0.1.0 publish deferred to Phase 7*
 - [x] State machine description DSL (macro or builder) — *builder API in `machine.rs`; a `macro_rules!` front end is not written*
 - [x] Reachability and deadlock analysis — *BFS reachability ignores guards (over-approximation, documented); deadlocks from missing transitions or guards that can all be false*
-- [ ] Compile-time proof of deadlock freedom via the solver where guards are arithmetic — *analysis runs at run time; a compile-time check needs a proc macro (not written)*
+- [x] Compile-time proof of deadlock freedom for box guards — *`const_check::assert_deadlock_free` runs in a const context. Integer thresholds only, 64 states and 4 variables. General arithmetic guards are still checked only at run time.*
 - [x] Counterexample trace reporting — *shortest event path to each deadlock, plus a solver witness valuation*
-- [ ] Compile-fail tests on deadlocking machines — *pending the compile-time check*
+- [x] Compile-fail tests on deadlocking machines — *trybuild in `tests/ui/`: missing transition and guard gap*
 
 ### tpt-dev-test: property-based testing with invariant generation
 - [x] S — *0.1.0 publish deferred to Phase 7*
 - [x] Generator trait and shrinking — *`generator.rs`: IntRange, Bools, VecOf, Pair; greedy shrinking in `runner.rs`*
 - [x] Constraint-aware generation using tpt-dev-solver — *`ConstrainedGen` samples models of a linear constraint with random bounds*
-- [ ] Invariant generation for arithmetic-dependent properties — *`infer` proposes sample-derived bounds on single variables and pairs; `prove` checks each with the solver (counterexamples are confirmed). No inductive-invariant search over transition systems yet.*
+- [x] Invariant generation for arithmetic-dependent properties — *`find_invariant`: sampled bounds, Houdini filtering, solver-checked initiation/consecution/property. Violations come with a concrete trace. Limits: no disjunctive or non-linear invariants, no counterexample strengthening, integer systems checked over the reals.*
 - [x] Deterministic seeds and failure reproduction — *per-case seeds; `Failure` reports seed and case; `replay` regenerates the input*
 - [x] `no_std` runner — *`no_std` + `alloc`; no std dependency*
 
@@ -184,8 +184,8 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 ### tpt-dev-dsl: domain-specific language framework
 - [x] S — *0.1.0 publish deferred to Phase 7*
 - [x] Grammar definition API — *`Grammar`, `Rule`, `Expr` (PEG), checked at compile time in a `const`*
-- [ ] Parser generation built on tpt-dev-ast — *not done: the ast crate's lexer is JSON-only; the DSL interprets its own grammars*
-- [ ] Macro embedding (`dsl!{...}`) with good error spans — *not done: needs a proc-macro crate*
+- [ ] Parser generation built on tpt-dev-ast — *ast has a generic `Lexer`/`Feed` hook with `JsonLexer` as default (done). The DSL streaming machine is not done: the arithmetic grammar needs PEG backtracking over spaces, which one-token lookahead cannot reproduce. Needs bounded backtracking or a memo; the attempt was removed.*
+- [ ] Macro embedding (`dsl!{...}`) with good error spans — *not done: needs a proc-macro crate, which has not been added*
 - [x] Example DSL as a reference — *arithmetic grammar in `tests/arith.rs`, described in the README*
 
 ### tpt-dev-codegen: build-time code generation
@@ -219,9 +219,9 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 ### tpt-dev-ffi: zero-copy FFI state machine framework
 - [x] S — *0.1.0 publish deferred to Phase 7*
 - [x] Typestate API for stateful C lifetimes — *`Closed`/`Open`/`Streaming` sessions; transitions consume the session (`session.rs`); compile-fail case
-- [ ] Ownership and borrow rules at the FFI boundary — *partial: the session owns the object and frees it on drop; buffers are borrowed for one call (`with`); no zero-copy views that outlive a call*
+- [x] Ownership and borrow rules at the FFI boundary — *`with_view` gives a `for<'v>` zero-copy `View` that cannot escape the call or overlap a library call; compile-fail tests in `tests/ui/view_*.rs`. The unsafe contract sits in the backend's `view`.*
 - [x] Handle/opaque-pointer helpers with validation — *`Handle<T>` is non-null and typed*
-- [ ] Integration with tpt-dev-headers and tpt-dev-automata — *not done*
+- [x] Integration with tpt-dev-headers and tpt-dev-automata — *header prototypes and the typestate machine are checked in `tests/c_library.rs`. The machine is hand-written and has no guards.*
 - [x] Example wrapping a stateful C library — *`tests/c_library.rs`: a Rust library exported through `extern "C"`; no C compiler is available, so no real C was compiled*
 
 ### tpt-dev-lint: custom project-specific linting (no compiler plugins)
@@ -244,9 +244,9 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 ### tpt-dev-doc: interactive, runnable documentation
 - [x] S — *0.1.0 publish deferred to Phase 7*
 - [x] Extract examples from doc comments — *`extract` reads fenced blocks with rustdoc's tags and hidden lines; `doc_comments` takes `///` and `//!` text from source*
-- [ ] Embedded live REPL for running examples (decided: examples compiled to Wasm and run client-side in the browser, no server) — *not done: examples are shown, not run. Needs the `wasm32-unknown-unknown` target (not installed here) and a browser runtime to test.*
-- [ ] Rustdoc integration (HTML injection) — *`inject_before` inserts a fragment before a marker, and reports a missing marker; no build step wires it into `cargo doc` yet*
-- [ ] Hosting-compatible output for docs.rs — *`page` writes a self-contained HTML page with no script or network reference; no build step writes it into a crate's docs yet*
+- [ ] Embedded live REPL for running examples (decided: examples compiled to Wasm and run client-side in the browser, no server) — *`wasm::compile` and `wasm::RUNNER_JS` built; `wasm32-unknown-unknown` installed. Checked under Node 22 (pass returns, failing assert traps). Open: a page wiring them, a browser test of the Worker timeout, and a sandboxing re-review before shipping.*
+- [ ] Rustdoc integration (HTML injection) — *`site::inject_into_rustdoc` is tested on a rustdoc-shaped temp tree. A post-`cargo doc` step (xtask or binary) must call it, since build.rs output is overwritten by rustdoc.*
+- [x] Hosting-compatible output for docs.rs — *static only (decided); `site::write_examples_page` plus a test asserting no script, frame, form, image, link or URL. A build step must still call it.*
 - [x] Sandboxing/security review — *README section: nothing executes code yet; the review must be repeated when the Wasm runner lands*
 
 ### tpt-dev-profiler: sampling profiler (bounded per-sample cost)
@@ -318,9 +318,9 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 ### tpt-dev-compose: Wasm Component Model linker
 - [x] S — *0.1.0 publish deferred to Phase 7*
 - [x] Wasm binary/component parser (pure Rust) — *core modules in `module.rs`; components in `component.rs`: sections (id, offset, size, vector item counts), custom names, embedded core modules and nested components to depth 16. Vector item contents are not decoded.*
-- [ ] Component Model type system and canonical ABI — *not started*
-- [ ] Instance linking and composition at runtime — *partial: `Registry::link` plans instantiation order and bindings for function imports. No instantiation or execution.*
-- [ ] Import/export resolution and validation — *partial: function imports are resolved and signature-checked, with cycles reported. Other import kinds are refused, and some indices are not bounds-checked.*
+- [ ] Component Model types and canonical ABI — *partial: defined value and function types decoded, with size, align and flat lowering. Instance, component and resource types are not decoded; the >16-parameter spill is not implemented.*
+- [ ] Instance linking and composition at runtime — *partial: `Registry::link` returns order and bindings for every core import kind. No instantiation or execution (no interpreter). Component-level composition not covered.*
+- [ ] Import/export resolution and validation — *partial: all core-module import kinds are type-checked and all export and index bounds are checked. Component-level import and export kinds are not resolved.*
 - [x] Conformance tests against sample components — *`tests/component.rs` checks ids, offsets, sizes and counts against `wasm-tools dump` for three fixtures (one nested); `wasm-tools validate` accepts them*
 
 ### tpt-dev-sim: cycle-accurate hardware simulator
