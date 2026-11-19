@@ -170,6 +170,10 @@ pub enum ErrorKind {
     CodeCountMismatch,
     /// The element count is larger than the bytes left in the section.
     CountTooLarge,
+    /// The input is a core module, not a component: its layer is not 1.
+    NotAComponent,
+    /// Components are nested deeper than the parser allows.
+    NestingTooDeep,
 }
 
 /// A parse error, with the byte offset where it was found.

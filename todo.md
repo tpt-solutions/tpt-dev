@@ -317,11 +317,11 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 
 ### tpt-dev-compose: Wasm Component Model linker
 - [x] S — *0.1.0 publish deferred to Phase 7*
-- [ ] Wasm binary/component parser (pure Rust) — *partial: core-module parser (`module.rs`), with section order, lengths and counts checked. The component binary format is not parsed.*
+- [x] Wasm binary/component parser (pure Rust) — *core modules in `module.rs`; components in `component.rs`: sections (id, offset, size, vector item counts), custom names, embedded core modules and nested components to depth 16. Vector item contents are not decoded.*
 - [ ] Component Model type system and canonical ABI — *not started*
 - [ ] Instance linking and composition at runtime — *partial: `Registry::link` plans instantiation order and bindings for function imports. No instantiation or execution.*
 - [ ] Import/export resolution and validation — *partial: function imports are resolved and signature-checked, with cycles reported. Other import kinds are refused, and some indices are not bounds-checked.*
-- [ ] Conformance tests against sample components — *partial: core-module fixtures assembled with `wasm-tools` and validated by it; no component fixtures yet*
+- [x] Conformance tests against sample components — *`tests/component.rs` checks ids, offsets, sizes and counts against `wasm-tools dump` for three fixtures (one nested); `wasm-tools validate` accepts them*
 
 ### tpt-dev-sim: cycle-accurate hardware simulator
 - [x] S — *0.1.0 publish deferred to Phase 7*
