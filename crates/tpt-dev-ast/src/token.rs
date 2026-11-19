@@ -28,13 +28,49 @@ pub enum Token<'a> {
     Null,
 }
 
-/// The result of one lexing step.
+/// Classifies bytes into tokens. The streaming driver is generic over this
+/// trait, so a grammar can supply its own token kinds. [`JsonLexer`] is the
+/// default.
+///
+/// A lexer must not look past `input` for its answer, and it must report
+/// [`Lex::Incomplete`] rather than guess when a token might continue in the
+/// next chunk (unless `eof` is set).
+pub trait Lexer {
+    /// The token type. It may borrow from the input.
+    type Token<'a>;
+
+    /// Lexes one step from the start of `input`. See [`lex`] for `eof`.
+    fn lex<'a>(&self, input: &'a [u8], eof: bool) -> Step<Self::Token<'a>>;
+}
+
+/// The JSON lexer, the default for [`Stream`](crate::Stream).
+///
+/// ```
+/// use tpt_dev_ast::{JsonLexer, Lex, Lexer, Token};
+///
+/// assert_eq!(
+///     JsonLexer.lex(b"null", true),
+///     Lex::Token { token: Token::Null, len: 4 }
+/// );
+/// ```
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct JsonLexer;
+
+impl Lexer for JsonLexer {
+    type Token<'a> = Token<'a>;
+
+    fn lex<'a>(&self, input: &'a [u8], eof: bool) -> Lex<'a> {
+        lex(input, eof)
+    }
+}
+
+/// The result of one lexing step, for a token type `T`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Lex<'a> {
+pub enum Step<T> {
     /// A token that spans `len` bytes.
     Token {
         /// The token found.
-        token: Token<'a>,
+        token: T,
         /// Bytes it occupies in the input.
         len: usize,
     },
@@ -48,6 +84,9 @@ pub enum Lex<'a> {
         at: usize,
     },
 }
+
+/// The result of one JSON lexing step.
+pub type Lex<'a> = Step<Token<'a>>;
 
 /// Lexes one step from the start of `input`.
 ///

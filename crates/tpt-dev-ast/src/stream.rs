@@ -7,7 +7,7 @@
 use core::cmp::min;
 
 use crate::parser::{Fault, Parser, Visitor};
-use crate::token::{Lex, lex};
+use crate::token::{JsonLexer, Lexer, Step, Token};
 
 /// An error found while parsing. Each variant gives the byte offset in the whole stream.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -49,7 +49,14 @@ pub enum ParseError {
 }
 
 impl Fault {
-    fn at(self, offset: usize) -> ParseError {
+    /// Attaches the stream offset of the token that caused this fault.
+    ///
+    /// ```
+    /// use tpt_dev_ast::{Fault, ParseError};
+    ///
+    /// assert_eq!(Fault::Syntax.at(7), ParseError::Syntax { offset: 7 });
+    /// ```
+    pub fn at(self, offset: usize) -> ParseError {
         match self {
             Fault::Syntax => ParseError::Syntax { offset },
             Fault::TrailingData => ParseError::TrailingData { offset },
@@ -59,56 +66,62 @@ impl Fault {
     }
 }
 
-/// A streaming parser. It accepts input in chunks of any size.
+/// The chunked driver for any [`Lexer`]. It lexes byte chunks of any size
+/// and passes each token, without copying it, to a sink. A token split across
+/// chunks waits in a fixed carry buffer of `CARRY` bytes.
 ///
-/// `DEPTH` is the maximum nesting, and `CARRY` is the longest token that can
-/// cross a chunk boundary. Both are fixed at compile time, so the parser uses
-/// a fixed amount of memory whatever the input size.
+/// The sink takes each token and returns a [`Fault`] to stop the stream.
+/// [`Stream`] is this driver with the JSON lexer and parser.
 ///
 /// ```
-/// use tpt_dev_ast::{Event, Stream};
+/// use tpt_dev_ast::{Fault, Feed, JsonLexer, Token};
 ///
-/// let mut stream: Stream<4, 16> = Stream::new();
-/// let mut count = 0;
-/// let mut visit = |_: Event<'_>| count += 1;
-/// // The number 1234 is split across two chunks.
-/// stream.feed(b"[12", &mut visit).unwrap();
-/// stream.feed(b"34]", &mut visit).unwrap();
-/// stream.finish(&mut visit).unwrap();
-/// assert_eq!(count, 3);
+/// let mut feed: Feed<JsonLexer, 8> = Feed::new(JsonLexer);
+/// let mut numbers = 0;
+/// let mut sink = |t: Token<'_>| -> Result<(), Fault> {
+///     if let Token::Number(_) = t {
+///         numbers += 1;
+///     }
+///     Ok(())
+/// };
+/// feed.feed(b"[1", &mut sink).unwrap();
+/// feed.feed(b"23]", &mut sink).unwrap();
+/// feed.finish(&mut sink).unwrap();
+/// assert_eq!(numbers, 1);
 /// ```
-pub struct Stream<const DEPTH: usize, const CARRY: usize> {
-    parser: Parser<DEPTH>,
+pub struct Feed<L: Lexer, const CARRY: usize> {
+    lexer: L,
     carry: [u8; CARRY],
     carry_len: usize,
     consumed: usize,
 }
 
-impl<const DEPTH: usize, const CARRY: usize> Stream<DEPTH, CARRY> {
-    /// Creates a stream ready for the first byte.
-    ///
-    /// Fails to compile if `CARRY` is zero.
-    pub const fn new() -> Self {
+impl<L: Lexer, const CARRY: usize> Feed<L, CARRY> {
+    /// Creates a driver that uses `lexer`. Fails to compile if `CARRY` is zero.
+    pub const fn new(lexer: L) -> Self {
         const { assert!(CARRY > 0, "the carry buffer needs at least one byte") };
         Self {
-            parser: Parser::new(),
+            lexer,
             carry: [0; CARRY],
             carry_len: 0,
             consumed: 0,
         }
     }
 
-    /// Total bytes parsed so far.
+    /// Total bytes lexed so far.
     pub const fn consumed(&self) -> usize {
         self.consumed
     }
 
-    /// Feeds the next chunk of input.
-    pub fn feed(&mut self, mut chunk: &[u8], visitor: &mut dyn Visitor) -> Result<(), ParseError> {
+    /// Feeds the next chunk of input. Each token goes to `sink`.
+    pub fn feed<F>(&mut self, mut chunk: &[u8], sink: &mut F) -> Result<(), ParseError>
+    where
+        F: for<'a> FnMut(<L as Lexer>::Token<'a>) -> Result<(), Fault>,
+    {
         while !chunk.is_empty() {
             if self.carry_len == 0 {
                 // Fast path: lex in place from the chunk.
-                let used = run(&mut self.parser, chunk, self.consumed, false, visitor)?;
+                let used = run(&self.lexer, chunk, self.consumed, false, sink)?;
                 self.consumed += used;
                 chunk = &chunk[used..];
                 if chunk.is_empty() {
@@ -139,11 +152,11 @@ impl<const DEPTH: usize, const CARRY: usize> Stream<DEPTH, CARRY> {
             self.carry_len += n;
             chunk = &chunk[n..];
             let used = run(
-                &mut self.parser,
+                &self.lexer,
                 &self.carry[..self.carry_len],
                 self.consumed,
                 false,
-                visitor,
+                sink,
             )?;
             self.carry.copy_within(used..self.carry_len, 0);
             self.carry_len -= used;
@@ -152,48 +165,49 @@ impl<const DEPTH: usize, const CARRY: usize> Stream<DEPTH, CARRY> {
         Ok(())
     }
 
-    /// Declares the end of input, and checks that the document is complete.
-    pub fn finish(&mut self, visitor: &mut dyn Visitor) -> Result<(), ParseError> {
+    /// Declares the end of input, lexing any token still waiting in the carry.
+    pub fn finish<F>(&mut self, sink: &mut F) -> Result<(), ParseError>
+    where
+        F: for<'a> FnMut(<L as Lexer>::Token<'a>) -> Result<(), Fault>,
+    {
         if self.carry_len > 0 {
             let used = run(
-                &mut self.parser,
+                &self.lexer,
                 &self.carry[..self.carry_len],
                 self.consumed,
                 true,
-                visitor,
+                sink,
             )?;
             self.consumed += used;
             self.carry_len = 0;
         }
-        self.parser.finish().map_err(|f| f.at(self.consumed))
+        Ok(())
     }
 }
 
-impl<const DEPTH: usize, const CARRY: usize> Default for Stream<DEPTH, CARRY> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Lexes and parses as many whole tokens as `buf` holds. Returns the bytes used.
+/// Lexes and feeds as many whole tokens as `buf` holds. Returns the bytes used.
 /// `base` is the offset of `buf[0]` in the whole stream.
-fn run<const DEPTH: usize>(
-    parser: &mut Parser<DEPTH>,
+fn run<L, F>(
+    lexer: &L,
     buf: &[u8],
     base: usize,
     eof: bool,
-    visitor: &mut dyn Visitor,
-) -> Result<usize, ParseError> {
+    sink: &mut F,
+) -> Result<usize, ParseError>
+where
+    L: Lexer,
+    F: for<'a> FnMut(<L as Lexer>::Token<'a>) -> Result<(), Fault>,
+{
     let mut pos = 0;
     while pos < buf.len() {
-        match lex(&buf[pos..], eof) {
-            Lex::Token { token, len } => {
-                parser.token(token, visitor).map_err(|f| f.at(base + pos))?;
+        match lexer.lex(&buf[pos..], eof) {
+            Step::Token { token, len } => {
+                sink(token).map_err(|f| f.at(base + pos))?;
                 pos += len;
             }
-            Lex::Skip(n) => pos += n,
-            Lex::Incomplete => break,
-            Lex::Invalid { at } => {
+            Step::Skip(n) => pos += n,
+            Step::Incomplete => break,
+            Step::Invalid { at } => {
                 return Err(ParseError::Lex {
                     offset: base + pos + at,
                 });
@@ -201,6 +215,67 @@ fn run<const DEPTH: usize>(
         }
     }
     Ok(pos)
+}
+
+/// A streaming JSON parser. It accepts input in chunks of any size.
+///
+/// `DEPTH` is the maximum nesting, and `CARRY` is the longest token that can
+/// cross a chunk boundary. Both are fixed at compile time, so the parser uses
+/// a fixed amount of memory whatever the input size.
+///
+/// ```
+/// use tpt_dev_ast::{Event, Stream};
+///
+/// let mut stream: Stream<4, 16> = Stream::new();
+/// let mut count = 0;
+/// let mut visit = |_: Event<'_>| count += 1;
+/// // The number 1234 is split across two chunks.
+/// stream.feed(b"[12", &mut visit).unwrap();
+/// stream.feed(b"34]", &mut visit).unwrap();
+/// stream.finish(&mut visit).unwrap();
+/// assert_eq!(count, 3);
+/// ```
+pub struct Stream<const DEPTH: usize, const CARRY: usize> {
+    parser: Parser<DEPTH>,
+    feed: Feed<JsonLexer, CARRY>,
+}
+
+impl<const DEPTH: usize, const CARRY: usize> Stream<DEPTH, CARRY> {
+    /// Creates a stream ready for the first byte.
+    ///
+    /// Fails to compile if `CARRY` is zero.
+    pub const fn new() -> Self {
+        Self {
+            parser: Parser::new(),
+            feed: Feed::new(JsonLexer),
+        }
+    }
+
+    /// Total bytes parsed so far.
+    pub const fn consumed(&self) -> usize {
+        self.feed.consumed()
+    }
+
+    /// Feeds the next chunk of input.
+    pub fn feed(&mut self, chunk: &[u8], visitor: &mut dyn Visitor) -> Result<(), ParseError> {
+        let parser = &mut self.parser;
+        self.feed
+            .feed(chunk, &mut |t: Token<'_>| parser.token(t, visitor))
+    }
+
+    /// Declares the end of input, and checks that the document is complete.
+    pub fn finish(&mut self, visitor: &mut dyn Visitor) -> Result<(), ParseError> {
+        let parser = &mut self.parser;
+        self.feed
+            .finish(&mut |t: Token<'_>| parser.token(t, visitor))?;
+        parser.finish().map_err(|f| f.at(self.feed.consumed()))
+    }
+}
+
+impl<const DEPTH: usize, const CARRY: usize> Default for Stream<DEPTH, CARRY> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]

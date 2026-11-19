@@ -31,4 +31,4 @@ stream.finish(&mut visit).unwrap();
 
 ## Scope
 
-The lexer and the structural parser cover a JSON-like grammar: objects, arrays, strings, numbers, `true`, `false` and `null`. The framework parts are generic: the chunked driver (`Stream`), the fixed-depth stack, and the visitor. Other grammars would need their own lexer and state machine. Numbers are checked only for their character set, not for full number syntax. Escape sequences are not decoded, so the caller decodes them if it needs the text.
+The lexer and the structural parser cover a JSON-like grammar: objects, arrays, strings, numbers, `true`, `false` and `null`. The framework parts are generic: the chunked driver, the fixed-depth stack, and the visitor. `Feed` is the chunked driver for any `Lexer` trait implementation, so another grammar supplies its own token type and classifies bytes with `Lexer::lex`. It still needs its own state machine to consume those tokens; `Stream` is the JSON instance of `Feed`. Numbers are checked only for their character set, not for full number syntax. Escape sequences are not decoded, so the caller decodes them if it needs the text.

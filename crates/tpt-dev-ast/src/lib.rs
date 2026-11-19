@@ -11,8 +11,8 @@ mod token;
 
 pub use parser::{Event, Fault, Parser, Visitor};
 pub use stack::{DepthExceeded, Stack};
-pub use stream::{ParseError, Stream};
-pub use token::{Lex, Token, lex};
+pub use stream::{Feed, ParseError, Stream};
+pub use token::{JsonLexer, Lex, Lexer, Step, Token, lex};
 
 /// Parses a complete in-memory document, reporting events to `visitor`.
 ///
