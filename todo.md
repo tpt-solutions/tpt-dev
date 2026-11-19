@@ -295,7 +295,7 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [ ] Zeroisation of secrets — *best effort: keys and secrets are overwritten on drop with `black_box`; copies made by the caller are not tracked*
 - [x] Bring-your-own-RNG interface (no_std) — *`Rng` trait; `keygen` and `encapsulate` take it*
 - [ ] Security review and a clear "not independently audited" notice — *notice written in the README; no independent review*
-- [x] Performance benchmarks on host and Cortex-M — *host only (`examples/timing.rs`): keygen, encaps, decaps, sign and verify at all levels. Cortex-M not measured.*
+- [ ] Performance benchmarks on host and Cortex-M — *host done, Cortex-M open; host only (`examples/timing.rs`): keygen, encaps, decaps, sign and verify at all levels. Cortex-M not measured.*
 
 ### tpt-dev-zk: Rust-to-zero-knowledge circuit transpiler
 - [x] S — *0.1.0 publish deferred to Phase 7*
