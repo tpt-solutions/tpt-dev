@@ -13,6 +13,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::module::{self, ErrorKind, Module, ParseError};
+use crate::types::{self, TypeDef};
 
 /// The deepest nesting of components the parser accepts.
 pub const MAX_DEPTH: usize = 16;
@@ -41,6 +42,10 @@ pub struct Section {
     pub core_module: Option<Module>,
     /// For nested component sections (id 4), the parsed component.
     pub nested: Option<Component>,
+    /// For type sections (id 7), the decoded types, in order. `None` if the
+    /// section holds a type kind this parser does not decode (instance,
+    /// component or resource types, or a module type).
+    pub types: Option<Vec<TypeDef>>,
 }
 
 impl Section {
@@ -115,6 +120,7 @@ fn parse_at(bytes: &[u8], base: usize, depth: usize) -> Result<Component, ParseE
             custom_name: None,
             core_module: None,
             nested: None,
+            types: None,
         };
         match id {
             0 => {
@@ -135,7 +141,20 @@ fn parse_at(bytes: &[u8], base: usize, depth: usize) -> Result<Component, ParseE
             4 => {
                 section.nested = Some(parse_at(body, body_base, depth + 1)?);
             }
-            2 | 3 | 5 | 6 | 7 | 8 | 10 | 11 | 12 => {
+            7 => {
+                let mut s = Reader {
+                    bytes: body,
+                    pos: 0,
+                    base: body_base,
+                };
+                let n = s.count()?;
+                section.count = Some(n);
+                section.types = types::decode_items(&mut s, n)?;
+                if section.types.is_some() && !s.done() {
+                    return Err(s.err(ErrorKind::TrailingBytes));
+                }
+            }
+            2 | 3 | 5 | 6 | 8 | 10 | 11 | 12 => {
                 let mut s = Reader {
                     bytes: body,
                     pos: 0,
@@ -151,18 +170,18 @@ fn parse_at(bytes: &[u8], base: usize, depth: usize) -> Result<Component, ParseE
     Ok(Component { sections })
 }
 
-struct Reader<'a> {
-    bytes: &'a [u8],
-    pos: usize,
-    base: usize,
+pub(crate) struct Reader<'a> {
+    pub(crate) bytes: &'a [u8],
+    pub(crate) pos: usize,
+    pub(crate) base: usize,
 }
 
 impl<'a> Reader<'a> {
-    fn err(&self, kind: ErrorKind) -> ParseError {
+    pub(crate) fn err(&self, kind: ErrorKind) -> ParseError {
         err(self.base + self.pos, kind)
     }
 
-    fn done(&self) -> bool {
+    pub(crate) fn done(&self) -> bool {
         self.pos == self.bytes.len()
     }
 
@@ -170,16 +189,41 @@ impl<'a> Reader<'a> {
         self.bytes.len() - self.pos
     }
 
-    fn byte(&mut self) -> Result<u8, ParseError> {
-        let b = *self
-            .bytes
+    pub(crate) fn peek(&self) -> Result<u8, ParseError> {
+        self.bytes
             .get(self.pos)
-            .ok_or(self.err(ErrorKind::Truncated))?;
+            .copied()
+            .ok_or(self.err(ErrorKind::Truncated))
+    }
+
+    pub(crate) fn byte(&mut self) -> Result<u8, ParseError> {
+        let b = self.peek()?;
         self.pos += 1;
         Ok(b)
     }
 
-    fn take(&mut self, n: usize) -> Result<&'a [u8], ParseError> {
+    /// A signed LEB128 integer of at most 33 bits, as used for value type indices.
+    pub(crate) fn s33(&mut self) -> Result<i64, ParseError> {
+        let mut value = 0i64;
+        let mut shift = 0u32;
+        loop {
+            let b = self.byte()?;
+            value |= i64::from(b & 0x7F) << shift;
+            shift += 7;
+            if b & 0x80 == 0 {
+                if (b & 0x40) != 0 {
+                    value |= -1i64 << shift;
+                }
+                return Ok(value);
+            }
+            // Five bytes cover 35 bits, which is more than 33, so a sixth is too long.
+            if shift >= 35 {
+                return Err(self.err(ErrorKind::BadLeb128));
+            }
+        }
+    }
+
+    pub(crate) fn take(&mut self, n: usize) -> Result<&'a [u8], ParseError> {
         if n > self.remaining() {
             return Err(self.err(ErrorKind::Truncated));
         }
@@ -188,7 +232,7 @@ impl<'a> Reader<'a> {
         Ok(out)
     }
 
-    fn u32(&mut self) -> Result<u32, ParseError> {
+    pub(crate) fn u32(&mut self) -> Result<u32, ParseError> {
         let mut value = 0u32;
         let mut shift = 0u32;
         loop {
@@ -205,7 +249,7 @@ impl<'a> Reader<'a> {
     }
 
     /// An item count. Each item takes at least one byte, so the count cannot exceed the bytes left.
-    fn count(&mut self) -> Result<u32, ParseError> {
+    pub(crate) fn count(&mut self) -> Result<u32, ParseError> {
         let n = self.u32()?;
         if n as usize > self.remaining() {
             return Err(self.err(ErrorKind::CountTooLarge));
@@ -213,7 +257,7 @@ impl<'a> Reader<'a> {
         Ok(n)
     }
 
-    fn name(&mut self) -> Result<String, ParseError> {
+    pub(crate) fn name(&mut self) -> Result<String, ParseError> {
         let len = self.u32()? as usize;
         let bytes = self.take(len)?;
         match core::str::from_utf8(bytes) {

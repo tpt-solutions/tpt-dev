@@ -1,10 +1,15 @@
 //! A parser for the binary format of core WebAssembly modules.
 //!
 //! It reads the sections that linking needs: types, imports, function
-//! signatures, exports and the start function. It also checks the code section
-//! and the section order. Other sections are checked for length, then skipped.
-//! Instruction bodies are never decoded, so this parser does not validate code.
-//! The indices of tables, memories, globals and tags are not bounds-checked.
+//! signatures, tables, memories, globals, exports and the start function. It
+//! also checks the code section and the section order. Element and data
+//! sections are checked for length, then skipped. Instruction bodies are never
+//! decoded, so this parser does not validate code. Initialiser expressions are
+//! skipped after checking their opcodes.
+//!
+//! Every index in the module is bounds-checked against its index space: types,
+//! functions, tables, memories, globals and tags, including those an import
+//! adds. Export names must be unique.
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -38,19 +43,59 @@ pub struct FuncType {
     pub results: Vec<ValType>,
 }
 
-/// What an import provides.
+/// The size limits of a table or memory. Units are elements or pages.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Limits {
+    /// The smallest size.
+    pub min: u32,
+    /// The largest size, if bounded.
+    pub max: Option<u32>,
+}
+
+/// The type of a table: its element type and size limits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TableType {
+    /// The element type, which is `FuncRef` or `ExternRef`.
+    pub elem: ValType,
+    /// The size limits.
+    pub limits: Limits,
+}
+
+/// The type of a global: its value type and whether it is mutable.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GlobalType {
+    /// The value type.
+    pub ty: ValType,
+    /// Whether the global can be written.
+    pub mutable: bool,
+}
+
+/// What an import provides, with the type it must have.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ImportDesc {
     /// A function, with its index into the module's types.
     Func(u32),
     /// A table.
-    Table,
-    /// A memory.
-    Memory,
+    Table(TableType),
+    /// A memory, in pages.
+    Memory(Limits),
     /// A global.
-    Global,
-    /// An exception tag.
-    Tag,
+    Global(GlobalType),
+    /// An exception tag, with the index of its function type.
+    Tag(u32),
+}
+
+impl ImportDesc {
+    /// The kind of export this import must be matched with.
+    pub fn kind(&self) -> ExportKind {
+        match self {
+            ImportDesc::Func(_) => ExportKind::Func,
+            ImportDesc::Table(_) => ExportKind::Table,
+            ImportDesc::Memory(_) => ExportKind::Memory,
+            ImportDesc::Global(_) => ExportKind::Global,
+            ImportDesc::Tag(_) => ExportKind::Tag,
+        }
+    }
 }
 
 /// One import.
@@ -91,6 +136,10 @@ pub struct Export {
 }
 
 /// A parsed core module.
+///
+/// The `tables`, `memories` and `globals` fields hold only the entries the
+/// module defines. Imported entries are in `imports`. The `*_type` methods
+/// give the type of any entry in each index space, imported ones first.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Module {
     /// Function types.
@@ -99,6 +148,12 @@ pub struct Module {
     pub imports: Vec<Import>,
     /// Type index of each function the module defines, in order.
     pub functions: Vec<u32>,
+    /// Each table the module defines, in order.
+    pub tables: Vec<TableType>,
+    /// Each memory the module defines, in order.
+    pub memories: Vec<Limits>,
+    /// Each global the module defines, in order.
+    pub globals: Vec<GlobalType>,
     /// Exports, in order.
     pub exports: Vec<Export>,
     /// The start function, if any.
@@ -111,6 +166,33 @@ impl Module {
     /// The number of functions: imported ones, then defined ones.
     pub fn func_count(&self) -> usize {
         self.func_imports().count() + self.functions.len()
+    }
+
+    /// The number of entries in the table index space.
+    pub fn table_count(&self) -> usize {
+        self.import_descs(ExportKind::Table).count() + self.tables.len()
+    }
+
+    /// The number of entries in the memory index space.
+    pub fn memory_count(&self) -> usize {
+        self.import_descs(ExportKind::Memory).count() + self.memories.len()
+    }
+
+    /// The number of entries in the global index space.
+    pub fn global_count(&self) -> usize {
+        self.import_descs(ExportKind::Global).count() + self.globals.len()
+    }
+
+    /// The number of entries in the tag index space.
+    pub fn tag_count(&self) -> usize {
+        self.import_descs(ExportKind::Tag).count()
+    }
+
+    fn import_descs(&self, kind: ExportKind) -> impl Iterator<Item = ImportDesc> + '_ {
+        self.imports
+            .iter()
+            .map(|i| i.desc)
+            .filter(move |d| d.kind() == kind)
     }
 
     fn func_imports(&self) -> impl Iterator<Item = u32> + '_ {
@@ -130,6 +212,64 @@ impl Module {
             *self.functions.get(index - imported.len())?
         };
         self.types.get(type_index as usize)
+    }
+
+    /// The type of table `index`, in the table index space.
+    pub fn table_type(&self, index: u32) -> Option<TableType> {
+        let index = index as usize;
+        let imported = self.import_descs(ExportKind::Table).count();
+        if index < imported {
+            return self
+                .import_descs(ExportKind::Table)
+                .nth(index)
+                .and_then(|d| match d {
+                    ImportDesc::Table(t) => Some(t),
+                    _ => None,
+                });
+        }
+        self.tables.get(index - imported).copied()
+    }
+
+    /// The limits of memory `index`, in the memory index space.
+    pub fn memory_type(&self, index: u32) -> Option<Limits> {
+        let index = index as usize;
+        let imported = self.import_descs(ExportKind::Memory).count();
+        if index < imported {
+            return self
+                .import_descs(ExportKind::Memory)
+                .nth(index)
+                .and_then(|d| match d {
+                    ImportDesc::Memory(l) => Some(l),
+                    _ => None,
+                });
+        }
+        self.memories.get(index - imported).copied()
+    }
+
+    /// The type of global `index`, in the global index space.
+    pub fn global_type(&self, index: u32) -> Option<GlobalType> {
+        let index = index as usize;
+        let imported = self.import_descs(ExportKind::Global).count();
+        if index < imported {
+            return self
+                .import_descs(ExportKind::Global)
+                .nth(index)
+                .and_then(|d| match d {
+                    ImportDesc::Global(g) => Some(g),
+                    _ => None,
+                });
+        }
+        self.globals.get(index - imported).copied()
+    }
+
+    /// The function type index of tag `index`, in the tag index space.
+    pub fn tag_type(&self, index: u32) -> Option<u32> {
+        self.import_descs(ExportKind::Tag)
+            .nth(index as usize)
+            .and_then(|d| match d {
+                ImportDesc::Tag(t) => Some(t),
+                _ => None,
+            })
     }
 }
 
@@ -152,6 +292,10 @@ pub enum ErrorKind {
     TrailingBytes,
     /// A value type byte is not known.
     BadValType(u8),
+    /// A component value type is neither a primitive nor a valid type index.
+    BadValueType(u8),
+    /// A component type has a flag or tag byte outside the forms it allows.
+    BadTypeEncoding(u8),
     /// A function type does not start with 0x60.
     BadFuncType(u8),
     /// An export kind byte is not known.
@@ -162,10 +306,32 @@ pub enum ErrorKind {
     BadName,
     /// A limits flag is not one this parser supports.
     BadLimits(u8),
+    /// A limits field has a minimum above its maximum.
+    LimitsOrder,
+    /// A memory has more pages than the 32-bit address space allows.
+    MemoryTooLarge(u32),
+    /// A global's mutability byte is neither 0 nor 1.
+    BadMutability(u8),
+    /// A constant expression uses an instruction this parser does not allow.
+    BadConstOp(u8),
+    /// A table's reference type byte is not a reference type.
+    BadRefType(u8),
+    /// An exception tag's attribute byte is not 0.
+    BadTagAttribute,
     /// A type index is out of range.
     BadTypeIndex(u32),
     /// A function index is out of range.
     BadFuncIndex(u32),
+    /// A table index is out of range.
+    BadTableIndex(u32),
+    /// A memory index is out of range.
+    BadMemoryIndex(u32),
+    /// A global index is out of range.
+    BadGlobalIndex(u32),
+    /// A tag index is out of range.
+    BadTagIndex(u32),
+    /// Two exports have the same name.
+    DuplicateExport,
     /// The function and code sections disagree about how many functions there are.
     CodeCountMismatch,
     /// The element count is larger than the bytes left in the section.
@@ -289,26 +455,88 @@ impl<'a> Reader<'a> {
         })
     }
 
-    fn reftype(&mut self) -> Result<(), ParseError> {
+    fn reftype(&mut self) -> Result<ValType, ParseError> {
         match self.byte()? {
-            0x70 | 0x6F => Ok(()),
-            other => Err(self.err(ErrorKind::BadValType(other))),
+            0x70 => Ok(ValType::FuncRef),
+            0x6F => Ok(ValType::ExternRef),
+            other => Err(self.err(ErrorKind::BadRefType(other))),
         }
     }
 
-    /// Skips a limits field. Only the 32-bit forms are accepted.
-    fn limits(&mut self) -> Result<(), ParseError> {
-        match self.byte()? {
-            0x00 => {
-                self.u32()?;
-            }
-            0x01 => {
-                self.u32()?;
-                self.u32()?;
-            }
+    /// Reads a limits field. Only the 32-bit forms are accepted.
+    fn limits(&mut self) -> Result<Limits, ParseError> {
+        let flag = self.byte()?;
+        let min = self.u32()?;
+        let max = match flag {
+            0x00 => None,
+            0x01 => Some(self.u32()?),
             other => return Err(self.err(ErrorKind::BadLimits(other))),
+        };
+        if let Some(m) = max
+            && m < min
+        {
+            return Err(self.err(ErrorKind::LimitsOrder));
         }
-        Ok(())
+        Ok(Limits { min, max })
+    }
+
+    /// Reads a memory's limits, which must fit in the 32-bit address space.
+    fn memory_limits(&mut self) -> Result<Limits, ParseError> {
+        let l = self.limits()?;
+        let too_big = |n: u32| n > 65_536;
+        if too_big(l.min) {
+            return Err(self.err(ErrorKind::MemoryTooLarge(l.min)));
+        }
+        if let Some(m) = l.max
+            && too_big(m)
+        {
+            return Err(self.err(ErrorKind::MemoryTooLarge(m)));
+        }
+        Ok(l)
+    }
+
+    fn global_type(&mut self) -> Result<GlobalType, ParseError> {
+        let ty = self.valtype()?;
+        let mutable = match self.byte()? {
+            0 => false,
+            1 => true,
+            other => return Err(self.err(ErrorKind::BadMutability(other))),
+        };
+        Ok(GlobalType { ty, mutable })
+    }
+
+    /// Skips a signed LEB128 integer, which the constant expressions use.
+    fn skip_sleb(&mut self) -> Result<(), ParseError> {
+        for _ in 0..10 {
+            if self.byte()? & 0x80 == 0 {
+                return Ok(());
+            }
+        }
+        Err(self.err(ErrorKind::BadLeb128))
+    }
+
+    /// Skips a constant expression, checking that it only uses the instructions
+    /// the specification allows in one. Its value is not computed.
+    fn skip_const_expr(&mut self) -> Result<(), ParseError> {
+        loop {
+            match self.byte()? {
+                0x0B => return Ok(()),
+                0x41 | 0x42 => self.skip_sleb()?,
+                0x43 => {
+                    self.take(4)?;
+                }
+                0x44 => {
+                    self.take(8)?;
+                }
+                0x23 | 0xD2 => {
+                    self.u32()?;
+                }
+                // ref.null takes a heap type, which is a signed LEB128 integer.
+                0xD0 => self.skip_sleb()?,
+                0x6A..=0x6C | 0x7C..=0x7E => {}
+                other => return Err(self.err(ErrorKind::BadConstOp(other))),
+            }
+        }
     }
 
     fn func_type(&mut self) -> Result<FuncType, ParseError> {
@@ -424,23 +652,18 @@ pub fn parse(bytes: &[u8]) -> Result<Module, ParseError> {
                     let desc = match s.byte()? {
                         0x00 => ImportDesc::Func(s.type_index(module.types.len())?),
                         0x01 => {
-                            s.reftype()?;
-                            s.limits()?;
-                            ImportDesc::Table
+                            let elem = s.reftype()?;
+                            let limits = s.limits()?;
+                            ImportDesc::Table(TableType { elem, limits })
                         }
-                        0x02 => {
-                            s.limits()?;
-                            ImportDesc::Memory
-                        }
-                        0x03 => {
-                            s.valtype()?;
-                            s.byte()?;
-                            ImportDesc::Global
-                        }
+                        0x02 => ImportDesc::Memory(s.memory_limits()?),
+                        0x03 => ImportDesc::Global(s.global_type()?),
                         0x04 => {
-                            s.byte()?;
-                            s.u32()?;
-                            ImportDesc::Tag
+                            // The attribute byte is 0 for an exception tag.
+                            if s.byte()? != 0 {
+                                return Err(s.err(ErrorKind::BadTagAttribute));
+                            }
+                            ImportDesc::Tag(s.type_index(module.types.len())?)
                         }
                         other => return Err(s.err(ErrorKind::BadImportKind(other))),
                     };
@@ -457,6 +680,36 @@ pub fn parse(bytes: &[u8]) -> Result<Module, ParseError> {
                 for _ in 0..n {
                     let t = s.type_index(module.types.len())?;
                     module.functions.push(t);
+                }
+            }
+            4 => {
+                let n = s.count()?;
+                for _ in 0..n {
+                    // A table may start with 0x40 0x00 and an initial value expression.
+                    let with_init = s.bytes.get(s.pos) == Some(&0x40);
+                    if with_init {
+                        s.take(2)?;
+                    }
+                    let elem = s.reftype()?;
+                    let limits = s.limits()?;
+                    if with_init {
+                        s.skip_const_expr()?;
+                    }
+                    module.tables.push(TableType { elem, limits });
+                }
+            }
+            5 => {
+                let n = s.count()?;
+                for _ in 0..n {
+                    module.memories.push(s.memory_limits()?);
+                }
+            }
+            6 => {
+                let n = s.count()?;
+                for _ in 0..n {
+                    let ty = s.global_type()?;
+                    s.skip_const_expr()?;
+                    module.globals.push(ty);
                 }
             }
             7 => {
@@ -514,12 +767,33 @@ pub fn parse(bytes: &[u8]) -> Result<Module, ParseError> {
         });
     }
     for export in &module.exports {
-        if export.kind == ExportKind::Func && export.index as usize >= module.func_count() {
+        let (limit, kind) = match export.kind {
+            ExportKind::Func => (module.func_count(), ErrorKind::BadFuncIndex(export.index)),
+            ExportKind::Table => (module.table_count(), ErrorKind::BadTableIndex(export.index)),
+            ExportKind::Memory => (
+                module.memory_count(),
+                ErrorKind::BadMemoryIndex(export.index),
+            ),
+            ExportKind::Global => (
+                module.global_count(),
+                ErrorKind::BadGlobalIndex(export.index),
+            ),
+            ExportKind::Tag => (module.tag_count(), ErrorKind::BadTagIndex(export.index)),
+        };
+        if export.index as usize >= limit {
             return Err(ParseError {
                 offset: bytes.len(),
-                kind: ErrorKind::BadFuncIndex(export.index),
+                kind,
             });
         }
+    }
+    let mut names: Vec<&str> = module.exports.iter().map(|e| e.name.as_str()).collect();
+    names.sort_unstable();
+    if names.windows(2).any(|w| w[0] == w[1]) {
+        return Err(ParseError {
+            offset: bytes.len(),
+            kind: ErrorKind::DuplicateExport,
+        });
     }
     Ok(module)
 }

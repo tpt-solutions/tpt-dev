@@ -1,0 +1,16 @@
+(component
+  (type (record (field "a" u8) (field "b" u32)))
+  (type (variant (case "x") (case "y" u32)))
+  (type (list string))
+  (type (option u32))
+  (type (result u32 (error u8)))
+  (type (result (error u8)))
+  (type (tuple u8 u16))
+  (type (flags "r" "w"))
+  (type (enum "a" "b"))
+
+  (type (func (param "p" u32) (result u32)))
+  (type (func))
+  (type (func (result u32)))
+  (type (func (param "a" bool) (param "b" char) (param "c" string)))
+)
