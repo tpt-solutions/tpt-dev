@@ -287,15 +287,15 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [x] Mock accelerator backends for testing — *one `MockAccelerator` (NPU kind) that records calls; a second mock is not written*
 
 ### tpt-dev-pqc: pure-Rust post-quantum cryptography
-- [ ] S
-- [ ] ML-KEM (FIPS 203): 512/768/1024
-- [ ] ML-DSA (FIPS 204): 44/65/87
-- [ ] Constant-time implementation, with verification (e.g. dudect-style tests)
-- [ ] NIST KAT vectors pass
-- [ ] Zeroisation of secrets
-- [ ] Bring-your-own-RNG interface (no_std)
-- [ ] Security review and a clear "not independently audited" notice
-- [ ] Performance benchmarks on host and Cortex-M
+- [x] S — *0.1.0 publish deferred to Phase 7*
+- [x] ML-KEM (FIPS 203): 512/768/1024 — *`kem.rs`, with Keccak in `keccak.rs` and the ring and samplers in `poly.rs`*
+- [ ] ML-DSA (FIPS 204): 44/65/87 — *not started*
+- [ ] Constant-time implementation, with verification (e.g. dudect-style tests) — *partial: no secret-dependent branches, and implicit rejection uses masks; no timing test yet*
+- [x] NIST KAT vectors pass — *first 3 records per set in `tests/fixtures`; all 3,000 records of the full NIST files pass (`TPT_KAT_DIR`, ignored test)*
+- [ ] Zeroisation of secrets — *best effort: keys and secrets are overwritten on drop with `black_box`; copies made by the caller are not tracked*
+- [x] Bring-your-own-RNG interface (no_std) — *`Rng` trait; `keygen` and `encapsulate` take it*
+- [ ] Security review and a clear "not independently audited" notice — *notice written in the README; no independent review*
+- [ ] Performance benchmarks on host and Cortex-M — *not done*
 
 ### tpt-dev-zk: Rust-to-zero-knowledge circuit transpiler
 - [x] S — *0.1.0 publish deferred to Phase 7*
