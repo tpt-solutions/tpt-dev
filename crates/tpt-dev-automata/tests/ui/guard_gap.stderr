@@ -1,0 +1,15 @@
+error[E0080]: evaluation panicked: deadlock: outgoing guards of a reachable, non-final state can all be false
+  --> tests/ui/guard_gap.rs:17:15
+   |
+17 | const _: () = assert_deadlock_free(&SPEC);
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+   |
+note: inside `assert_deadlock_free`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/const_check.rs
+   |
+   |             panic!("deadlock: outgoing guards of a reachable, non-final state can all be false")
+   |             ------------------------------------------------------------------------------------ in this macro invocation

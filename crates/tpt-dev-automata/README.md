@@ -26,10 +26,23 @@ let report = m.analyze(wait).unwrap();
 assert!(matches!(report.deadlocks[0].kind, DeadlockKind::GuardsIncomplete { .. }));
 ```
 
+## Compile-time check
+
+`const_check` can reject a deadlocking machine during compilation:
+
+```rust,ignore
+use tpt_dev_automata::const_check::{assert_deadlock_free, Spec};
+
+const SPEC: Spec<'_> = /* states, variables, edges written as data */;
+const _: () = assert_deadlock_free(&SPEC); // a deadlock fails the build
+```
+
+The compile-fail cases are in `tests/ui/`.
+
 ## Limits
 
 - **Guards are not used for reachability.** A state reported reachable might not be reachable with the real variable values. The deadlock witness is a valid valuation, but that valuation might not be reachable.
-- **Compile-time proof is not done.** The analysis runs at run time. A compile-time check needs a proc macro, which is not written yet, so the compile-fail tests for this crate are also pending.
+- **Compile-time checking covers only a subset.** `const_check` checks deadlock freedom in a `const` context. It takes machines whose guards are conjunctions of `x <op> c` atoms with integer `c`, written as plain data. Other guards, including rational thresholds and multi-variable linear guards, need the run-time `analyze`. Missing transitions in the `Spec` are not detected, so the spec must match the real machine.
 - **Single initial state.** Analysis starts from one state.
 - **Overflow is reported, not hidden.** If the solver cannot decide a guard, `analyze` returns `Error::Unknown`.
 

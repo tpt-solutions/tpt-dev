@@ -1,0 +1,15 @@
+error[E0080]: evaluation panicked: deadlock: a reachable, non-final state has no outgoing transition
+  --> tests/ui/no_transition.rs:16:15
+   |
+16 | const _: () = assert_deadlock_free(&SPEC);
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+   |
+note: inside `assert_deadlock_free`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/const_check.rs
+   |
+   |             panic!("deadlock: a reachable, non-final state has no outgoing transition")
+   |             --------------------------------------------------------------------------- in this macro invocation

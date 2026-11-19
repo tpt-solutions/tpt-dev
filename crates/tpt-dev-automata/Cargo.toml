@@ -17,6 +17,9 @@ std = []
 [dependencies]
 tpt-dev-solver = { version = "0.0.0", path = "../tpt-dev-solver" }
 
+[dev-dependencies]
+trybuild = "1"
+
 [lints]
 workspace = true
 
