@@ -46,7 +46,7 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [x] Workflow: release pipeline using `cargo-release` — *`.github/workflows/release.yml`, manual dispatch, dry run by default*
 - [x] Configure `cargo-release` (`cargo release patch --workspace --execute`: version bump, git tags, publish in dependency order) — *`release.toml`, shared version*
 - [x] Configure `docs.rs` metadata per crate (`[package.metadata.docs.rs]`)
-- [ ] Doc-comment rule check: every public function has a doc comment with a code example or `#[doc = include_str!("../README.md")]` — *deferred: needs public items to check; a candidate for tpt-dev-lint*
+- [x] Doc-comment rule check: every public function has a doc comment with a code example — *`tpt-dev-lint` `doc-example` rule (warn by default); pub free fns and inherent pub methods only; 460 findings across the workspace, not fixed*
 - [x] Add `missing_docs` lint at workspace level
 - [ ] Dry-run the full pipeline on the empty workspace — *local checks pass (fmt, clippy -D warnings, test, thumbv7em build, cargo-deny). `cargo release patch --workspace --no-verify` plans v0.0.1 and reaches the push step, which fails in dry run because the tree is uncommitted. Re-run on a committed tree. GitHub Actions not run remotely.*
 
@@ -212,9 +212,9 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [x] Parse Rust `extern "C"` items and `#[repr(C)]` types — *`syn`-based; functions, repr(C) structs, integer enums, aliases, constants*
 - [x] Emit C headers with include guards and Doxygen comments from Rust docs — *include guard set by the caller; `/** */` blocks on items and fields*
 - [x] Enum/struct/callback/opaque-handle support — *opaque structs, function-pointer typedefs (`extern "C" fn`)*
-- [ ] CLI and `build.rs` entry points — *`generate(source, options)` is the entry point for build scripts; no CLI binary yet*
+- [x] CLI and `build.rs` entry points — *`tpt-dev-headers` binary (exit 0/1/2) and `build::write_header`, which writes only on change; `tests/cli.rs`*
 - [x] Golden-file tests vs hand-written headers — *golden test against a generated-then-reviewed `api.h` (not hand-written); `BLESS=1` updates it*
-- [ ] Compile generated headers with a C compiler in CI — *not done: no C compiler is available here, and the CI job is not written*
+- [ ] Compile generated headers with a C compiler in CI — *`c-headers` job in `ci.yml` (`gcc -std=c99 -Wall -Werror`). Not run locally, because no C compiler is installed here; ci.yml was checked only as YAML.*
 
 ### tpt-dev-ffi: zero-copy FFI state machine framework
 - [x] S — *0.1.0 publish deferred to Phase 7*
@@ -235,7 +235,7 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 
 ### tpt-dev-dep: dependency graph analyzer
 - [x] S — *0.1.0 publish deferred to Phase 7*
-- [ ] Parse `Cargo.lock`/`cargo metadata` output — *`Cargo.lock` only; `cargo metadata` JSON is not parsed*
+- [x] Parse `Cargo.lock` and `cargo metadata --format-version 1` output — *strict JSON parser; metadata resolve graph with dev/build kinds (`--include-dev`/`--include-build`); `--metadata` flag; trimmed real fixture in `tests/metadata.rs`*
 - [x] Circular dependency detection — *Tarjan's strongly connected components (`report.rs`)*
 - [x] License violation detection (consistent with deny.toml policy) — *SPDX-style expressions checked against an allow list; the list is passed in, not read from deny.toml*
 - [x] Bloat analysis (dep count, transitive size) — *transitive dependency counts per package; sizes in bytes are not measured*
@@ -263,8 +263,8 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [x] Statistical comparison (confidence intervals, significance tests) — *Welch's t-test; the critical value is approximate and no confidence interval is computed*
 - [x] Baseline storage format — *plain text `name mean stddev n`, parsed and written by `Baseline`*
 - [x] CI gate: fail the PR on regression beyond threshold — *`judge` with `Policy`; a trusted regression is a failure*
-- [ ] GitHub Actions example workflow — *not written*
-- [ ] `no_std` cycle-counter mode — *not written; the core is no_std but the harness uses Instant*
+- [ ] GitHub Actions example workflow — *partial: `examples/ci/bench-gate.yml` has placeholders for the bench example and baseline path, and the bench example binary is not written. The gate binary (`examples/gate.rs`) is exit-code tested. The workflow was not run.*
+- [x] `no_std` cycle-counter mode — *`measure_with` and `CycleSource` in `cycles.rs` (no_std + alloc); the board supplies the counter; thumbv7em build passes*
 
 ---
 
@@ -290,7 +290,7 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [x] S — *0.1.0 publish deferred to Phase 7*
 - [x] ML-KEM (FIPS 203): 512/768/1024 — *`kem.rs`, with Keccak in `keccak.rs` and the ring and samplers in `poly.rs`*
 - [x] ML-DSA (FIPS 204): 44/65/87 — *`dsa.rs`: NTT, rounding, sampling, sign and verify. Hedged and deterministic signing. Hashed (HashML-DSA) variants are not implemented.*
-- [ ] Constant-time implementation, with verification (e.g. dudect-style tests) — *partial: ML-KEM decapsulation shows no leak (|t| at most 1.84, host, `examples/timing.rs`). ML-DSA signing does leak with the key (|t| about 40 to 56 for 44 and 65); fixing that needs a fixed-work signing loop, not done.*
+- [ ] Constant-time implementation, with verification (e.g. dudect-style tests) — *partial, host only: ML-KEM decapsulation shows no leak (|t| at most 1.84, `examples/timing.rs`). ML-DSA signing uses a fixed 64-attempt budget with masked checks; host |t| is at most 0.43 (was about 56), at roughly 9x the sign time. Not measured on Cortex-M. The `i64 % q` reductions call `__aeabi_ldivmod` on thumbv7em, and the `sample_in_ball` and keygen rejection loops remain.*
 - [x] NIST KAT vectors pass — *first 3 records per set in `tests/fixtures`; all 3,000 records of the full NIST files pass (`TPT_KAT_DIR`, ignored test)*
 - [ ] Zeroisation of secrets — *best effort: keys and secrets are overwritten on drop with `black_box`; copies made by the caller are not tracked*
 - [x] Bring-your-own-RNG interface (no_std) — *`Rng` trait; `keygen` and `encapsulate` take it*

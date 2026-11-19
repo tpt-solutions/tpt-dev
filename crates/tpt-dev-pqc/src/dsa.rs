@@ -2,9 +2,10 @@
 //!
 //! Signing uses rejection sampling: it draws a masking vector, checks that the
 //! response leaks nothing about the secret, and retries when a check fails. The
-//! loop count is therefore not constant, and it depends on the secret. The
-//! checks themselves are the scheme's design, not a side channel the caller can
-//! avoid.
+//! retries are the scheme's design. To keep their number from showing in the
+//! timing, signing makes a fixed budget of attempts and selects the first passing
+//! one with masks. See `sign_internal`. The budget is exceeded only with small
+//! probability, and then the standard loop continues, which is not constant time.
 
 use alloc::vec::Vec;
 use core::marker::PhantomData;
@@ -21,6 +22,12 @@ const D: u32 = 13;
 const ZETA: i64 = 1753;
 /// 256^-1 mod q, which scales the inverse NTT.
 const N_INV: i64 = 8_347_681;
+/// Attempts that one signing call always makes. A signature is produced in the
+/// first attempt that passes, as in the standard loop, so the budget changes only
+/// the work done, not the output. With an acceptance chance of about 0.2 to 0.26
+/// per attempt (FIPS 204 expected attempts: 4.25, 5.1, 3.85), the chance of using
+/// all 64 is below 1e-6 for each level.
+const SIGN_ATTEMPTS: u16 = 64;
 
 type Poly = [i32; N];
 
@@ -155,13 +162,50 @@ const ZETAS: [i32; N] = {
     t
 };
 
+/// Reduces `x` to `0..q`. The sign correction is a mask, not a branch.
+#[inline(always)]
 fn modq(x: i32) -> i32 {
-    x.rem_euclid(Q)
+    let r = x % Q;
+    r + (Q & (r >> 31))
 }
 
-/// Maps a residue in `0..q` to the centred range `(-q/2, q/2]`.
+/// Maps a residue in `0..q` to the centred range `(-q/2, q/2]`, without branching.
+#[inline(always)]
 fn center(x: i32) -> i32 {
-    if x > Q / 2 { x - Q } else { x }
+    // x > q/2 exactly when q/2 - x is negative.
+    x - (Q & ((Q / 2 - x) >> 31))
+}
+
+/// 1 when `|v| < bound`, else 0. Both values are small, so nothing overflows.
+#[inline(always)]
+fn abs_below(v: i32, bound: i32) -> u32 {
+    let s = v >> 31;
+    let a = (v ^ s) - s;
+    (((a - bound) >> 31) & 1) as u32
+}
+
+/// 1 when every coefficient of `polys`, centred, has absolute value below
+/// `bound`, else 0. Every coefficient is visited, so the work is fixed.
+fn centred_within(polys: &[Poly], bound: i32) -> u32 {
+    let mut ok = 1;
+    for p in polys {
+        for &c in p {
+            ok &= abs_below(center(c), bound);
+        }
+    }
+    ok
+}
+
+/// 1 when every low-order part `r0` of `polys` has absolute value below
+/// `bound`, else 0. Every coefficient is visited, so the work is fixed.
+fn low_within(polys: &[Poly], gamma2: i32, bound: i32) -> u32 {
+    let mut ok = 1;
+    for p in polys {
+        for &c in p {
+            ok &= abs_below(low_bits(c, gamma2), bound);
+        }
+    }
+    ok
 }
 
 fn ntt(w: &mut Poly) {
@@ -242,31 +286,38 @@ fn power2round(r: i32) -> (i32, i32) {
 }
 
 /// `Decompose`: splits r into `(r1, r0)` with `r = r1 * 2 * gamma2 + r0`.
+///
+/// Branch-free. `gamma2` is a constant at every call site in this module, and
+/// these functions are inlined so the division by `2 * gamma2` is by a constant.
+#[inline(always)]
 fn decompose(r: i32, gamma2: i32) -> (i32, i32) {
     let rp = modq(r);
     let alpha = 2 * gamma2;
     let mut r0 = rp % alpha;
-    if r0 > gamma2 {
-        r0 -= alpha;
-    }
-    if rp - r0 == Q - 1 {
-        (0, r0 - 1)
-    } else {
-        ((rp - r0) / alpha, r0)
-    }
+    // if r0 > gamma2 { r0 -= alpha }; gamma2 - r0 is negative exactly then.
+    r0 -= alpha & ((gamma2 - r0) >> 31);
+    // if rp - r0 == q - 1 { (0, r0 - 1) }
+    let d = (rp - r0) ^ (Q - 1);
+    let is_edge = (((d as u32) | (d as u32).wrapping_neg()) >> 31) ^ 1;
+    let edge = (is_edge as i32).wrapping_neg();
+    (((rp - r0) / alpha) & !edge, r0 + edge)
 }
 
+#[inline(always)]
 fn high_bits(r: i32, gamma2: i32) -> i32 {
     decompose(r, gamma2).0
 }
 
+#[inline(always)]
 fn low_bits(r: i32, gamma2: i32) -> i32 {
     decompose(r, gamma2).1
 }
 
-/// `MakeHint`: whether adding z to r changes its high bits.
-fn make_hint(z: i32, r: i32, gamma2: i32) -> bool {
-    high_bits(r, gamma2) != high_bits(modq(r + z), gamma2)
+/// `MakeHint` as 0 or 1: whether adding z to r changes its high bits. Branch-free.
+#[inline(always)]
+fn make_hint(z: i32, r: i32, gamma2: i32) -> i32 {
+    let d = (high_bits(r, gamma2) ^ high_bits(modq(r + z), gamma2)) as u32;
+    ((d | d.wrapping_neg()) >> 31) as i32
 }
 
 /// `UseHint`: recovers the high bits of r + z from r and the hint.
@@ -520,17 +571,25 @@ fn w1_encode<P: Parameters>(w1: &[Poly]) -> Vec<u8> {
 }
 
 /// HintBitPack: the hint as positions of ones, then the count per polynomial.
+///
+/// Branch-free. Every coefficient writes its index to the next free slot, and
+/// the slot advances only for a one. A malformed (too heavy) hint gives output
+/// the caller must discard, and the caller does.
 fn hint_pack<P: Parameters>(h: &[Poly]) -> Vec<u8> {
     let mut out = alloc::vec![0u8; P::OMEGA + P::K];
-    let mut index = 0;
+    let mut slots = alloc::vec![0u8; P::K * N];
+    let mut index = 0usize;
     for (i, row) in h.iter().enumerate() {
         for (j, &bit) in row.iter().enumerate() {
-            if bit != 0 {
-                out[index] = j as u8;
-                index += 1;
-            }
+            slots[index] = j as u8;
+            index += bit as usize;
         }
         out[P::OMEGA + i] = index as u8;
+    }
+    // Keep the first `index` positions and zero the rest, as the packing requires.
+    for (k, o) in out.iter_mut().take(P::OMEGA).enumerate() {
+        let keep = (((k as i32) - (index as i32)) >> 31) as u8;
+        *o = slots[k] & keep;
     }
     out
 }
@@ -816,108 +875,136 @@ fn sign_internal<P: Parameters>(sk: &SigningKey<P>, m_prime: &[u8], rnd: &[u8; 3
     let mut rho_dd = [0u8; 64];
     shake256(&[&d.key, rnd, &mu], &mut rho_dd);
 
+    // Fixed work: every call makes SIGN_ATTEMPTS attempts, whatever the key and
+    // message. The first passing attempt is kept by a mask, so the output is the
+    // same as the standard "retry until it passes" loop, which is only resumed
+    // below if no attempt in the budget passed.
+    let attempt =
+        |kappa: u16| sign_attempt::<P>(&a, &s1_hat, &s2_hat, &t0_hat, &mu, &rho_dd, kappa);
+    let mut out = alloc::vec![0u8; sig_len::<P>()];
+    let mut done = 0u32;
     let mut kappa: u16 = 0;
-    loop {
-        let y = expand_mask::<P>(&rho_dd, kappa);
+    for _ in 0..SIGN_ATTEMPTS {
+        let (candidate, ok) = attempt(kappa);
         kappa = kappa.wrapping_add(P::L as u16);
-        let mut y_hat = y.clone();
-        for p in y_hat.iter_mut() {
-            ntt(p);
+        let take = ok & (done ^ 1);
+        let mask = (take as u8).wrapping_neg();
+        for (o, c) in out.iter_mut().zip(&candidate) {
+            *o = (*o & !mask) | (*c & mask);
         }
-
-        // w = A y, in the normal domain.
-        let mut w = Vec::with_capacity(P::K);
-        for row in &a {
-            let mut acc = ZERO;
-            for (ar, yh) in row.iter().zip(&y_hat) {
-                acc = add(&acc, &pointwise(ar, yh));
-            }
-            inverse_ntt(&mut acc);
-            w.push(acc);
-        }
-        let w1: Vec<Poly> = w
-            .iter()
-            .map(|p| {
-                let mut hi = ZERO;
-                for c in 0..N {
-                    hi[c] = high_bits(p[c], P::GAMMA2);
-                }
-                hi
-            })
-            .collect();
-
-        let mut c_tilde = alloc::vec![0u8; P::CTILDE];
-        shake256(&[&mu, &w1_encode::<P>(&w1)], &mut c_tilde);
-        let c = sample_in_ball(&c_tilde, P::TAU);
-        let mut c_hat = c;
-        ntt(&mut c_hat);
-
-        // z = y + c s1
-        let mut z = Vec::with_capacity(P::L);
-        for j in 0..P::L {
-            let mut cs1 = pointwise(&c_hat, &s1_hat[j]);
-            inverse_ntt(&mut cs1);
-            z.push(add(&y[j], &cs1));
-        }
-        // r0 = LowBits(w - c s2)
-        let mut cs2 = Vec::with_capacity(P::K);
-        for s2 in &s2_hat {
-            let mut p = pointwise(&c_hat, s2);
-            inverse_ntt(&mut p);
-            cs2.push(p);
-        }
-        let mut w_minus_cs2 = Vec::with_capacity(P::K);
-        for (wi, ci) in w.iter().zip(&cs2) {
-            w_minus_cs2.push(sub(wi, ci));
-        }
-
-        let beta = P::ETA * P::TAU as i32;
-        let z_ok = z
-            .iter()
-            .all(|p| p.iter().all(|&c| center(c).abs() < P::GAMMA1 - beta));
-        let r0_ok = w_minus_cs2.iter().all(|p| {
-            p.iter()
-                .all(|&c| low_bits(c, P::GAMMA2).abs() < P::GAMMA2 - beta)
-        });
-        if !(z_ok && r0_ok) {
-            continue;
-        }
-
-        // ct0, and the hint for the high bits.
-        let mut ct0 = Vec::with_capacity(P::K);
-        for t0 in &t0_hat {
-            let mut p = pointwise(&c_hat, t0);
-            inverse_ntt(&mut p);
-            ct0.push(p);
-        }
-        let ct0_ok = ct0
-            .iter()
-            .all(|p| p.iter().all(|&c| center(c).abs() < P::GAMMA2));
-        let mut h = Vec::with_capacity(P::K);
-        let mut ones = 0usize;
-        for i in 0..P::K {
-            let mut row = ZERO;
-            let restored = add(&w_minus_cs2[i], &ct0[i]);
-            for c in 0..N {
-                let bit = make_hint(-ct0[i][c], restored[c], P::GAMMA2);
-                row[c] = i32::from(bit);
-                ones += usize::from(bit);
-            }
-            h.push(row);
-        }
-        if !ct0_ok || ones > P::OMEGA {
-            continue;
-        }
-
-        let mut sigma = Vec::with_capacity(sig_len::<P>());
-        sigma.extend_from_slice(&c_tilde);
-        for p in &z {
-            pack_centered(p, P::GAMMA1, z_bits::<P>(), &mut sigma);
-        }
-        sigma.extend_from_slice(&hint_pack::<P>(&h));
-        wipe(&mut rho_dd);
-        return sigma;
+        done |= ok;
     }
+    if done == 0 {
+        // Rare: the budget ran out. The standard loop continues from where the
+        // budget stopped, so the result is the same as an unbounded loop.
+        loop {
+            let (candidate, ok) = attempt(kappa);
+            kappa = kappa.wrapping_add(P::L as u16);
+            if ok == 1 {
+                out = candidate;
+                break;
+            }
+        }
+    }
+    wipe(&mut rho_dd);
+    out
+}
+
+/// Attempts a signature with masking counter `kappa`. Returns the encoded
+/// signature, and 1 if it passed every rejection check, else 0. The encoding is
+/// built whatever the outcome, so the work does not depend on it.
+fn sign_attempt<P: Parameters>(
+    a: &[Vec<Poly>],
+    s1_hat: &[Poly],
+    s2_hat: &[Poly],
+    t0_hat: &[Poly],
+    mu: &[u8; 64],
+    rho_dd: &[u8; 64],
+    kappa: u16,
+) -> (Vec<u8>, u32) {
+    let y = expand_mask::<P>(rho_dd, kappa);
+    let mut y_hat = y.clone();
+    for p in y_hat.iter_mut() {
+        ntt(p);
+    }
+
+    // w = A y, in the normal domain.
+    let mut w = Vec::with_capacity(P::K);
+    for row in a {
+        let mut acc = ZERO;
+        for (ar, yh) in row.iter().zip(&y_hat) {
+            acc = add(&acc, &pointwise(ar, yh));
+        }
+        inverse_ntt(&mut acc);
+        w.push(acc);
+    }
+    let w1: Vec<Poly> = w
+        .iter()
+        .map(|p| {
+            let mut hi = ZERO;
+            for c in 0..N {
+                hi[c] = high_bits(p[c], P::GAMMA2);
+            }
+            hi
+        })
+        .collect();
+
+    let mut c_tilde = alloc::vec![0u8; P::CTILDE];
+    shake256(&[mu, &w1_encode::<P>(&w1)], &mut c_tilde);
+    let mut c_hat = sample_in_ball(&c_tilde, P::TAU);
+    ntt(&mut c_hat);
+
+    // z = y + c s1
+    let mut z = Vec::with_capacity(P::L);
+    for j in 0..P::L {
+        let mut cs1 = pointwise(&c_hat, &s1_hat[j]);
+        inverse_ntt(&mut cs1);
+        z.push(add(&y[j], &cs1));
+    }
+    // w - c s2, whose low bits must stay small.
+    let mut w_minus_cs2 = Vec::with_capacity(P::K);
+    for (wi, s2) in w.iter().zip(s2_hat) {
+        let mut cs2 = pointwise(&c_hat, s2);
+        inverse_ntt(&mut cs2);
+        w_minus_cs2.push(sub(wi, &cs2));
+    }
+
+    // Rejection checks, combined with masks: every check runs to the end.
+    let beta = P::ETA * P::TAU as i32;
+    let mut ok = centred_within(&z, P::GAMMA1 - beta);
+    ok &= low_within(&w_minus_cs2, P::GAMMA2, P::GAMMA2 - beta);
+
+    // ct0, and the hint for the high bits.
+    let mut ct0 = Vec::with_capacity(P::K);
+    for t0 in t0_hat {
+        let mut p = pointwise(&c_hat, t0);
+        inverse_ntt(&mut p);
+        ct0.push(p);
+    }
+    ok &= centred_within(&ct0, P::GAMMA2);
+    let mut h = Vec::with_capacity(P::K);
+    let mut ones: i32 = 0;
+    for i in 0..P::K {
+        let mut row = ZERO;
+        let restored = add(&w_minus_cs2[i], &ct0[i]);
+        for c in 0..N {
+            let bit = make_hint(-ct0[i][c], restored[c], P::GAMMA2);
+            row[c] = bit;
+            ones += bit;
+        }
+        h.push(row);
+    }
+    // Too many hint bits: ones > OMEGA makes the sign of OMEGA - ones negative.
+    let too_many = (((P::OMEGA as i32) - ones) >> 31) as u32 & 1;
+    ok &= too_many ^ 1;
+
+    let mut sigma = Vec::with_capacity(sig_len::<P>());
+    sigma.extend_from_slice(&c_tilde);
+    for p in &z {
+        pack_centered(p, P::GAMMA1, z_bits::<P>(), &mut sigma);
+    }
+    sigma.extend_from_slice(&hint_pack::<P>(&h));
+    (sigma, ok)
 }
 
 /// The message representative for pure signing: `0 || len(ctx) || ctx || msg`.

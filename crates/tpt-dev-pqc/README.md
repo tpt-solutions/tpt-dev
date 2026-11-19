@@ -18,7 +18,7 @@ Pure-Rust post-quantum cryptography. **ML-KEM (FIPS 203)** and **ML-DSA (FIPS 20
 - **Parameter sets:** `MlDsa44`, `MlDsa65` and `MlDsa87`, through the `DsaParameters` trait.
 - **Operations:** `sign_deterministic` gives the same signature for the same key and message. `sign` takes an `Rng` and draws a fresh randomizer, so each signature differs. `verify` checks a signature against its message and context string. Contexts longer than 255 bytes are refused.
 - **Pure mode:** the message is wrapped with its context as FIPS 204 specifies. The crate does not implement the pre-hashed (HashML-DSA) variants.
-- **Timing of signing.** Signing draws masking vectors and retries until its checks pass. The number of retries depends on the key and the message. That is part of the scheme, but it means signing time can leak information about the key to an observer who can time many signatures.
+- **Timing of signing.** Signing makes a fixed budget of 64 attempts for every signature, and keeps the first that passes its checks with masks, so the number of attempts no longer shows in the timing. The output is the same as the standard retry loop. The loop continues past 64 only when no attempt passes, which is rare (about 1e-6 or less per signature), and that path is not constant time. The sampling inside each attempt (SampleInBall) still has data-dependent loops, and key generation still rejection-samples its secret seed.
 
 ## Verification
 
@@ -56,11 +56,11 @@ assert_eq!(sent.as_bytes(), received.as_bytes());
 
 - **Randomness is the caller's job.** The crate has no entropy source. A weak `Rng` breaks both schemes.
 - **Timing, measured on the host only.** `cargo run --release -p tpt-dev-pqc --example timing` runs a dudect-style check (Welch's t-test, |t| above 4.5 suggests leakage) and prints benchmarks. A run on this machine gave:
-  - **ML-KEM decapsulation, valid vs invalid ciphertext:** |t| of 1.84 or less at all three levels, so no leak was detected. Implicit rejection does the same work either way.
-  - **ML-DSA signing, one key vs another:** |t| of about 40 to 56 for ML-DSA-44 and -65, and about 1.5 for ML-DSA-87. **This is a real leak.** Signing time depends on the secret key, most likely through the number of rejection-sampling attempts. The README's earlier warning about this is confirmed. Fixing it needs a different signing loop, such as a fixed number of attempts with dummy work, and that is not done.
-  - The field reduction uses `%` by a constant. Compilers turn that into multiplication on common targets, but the device has not been checked.
-  - Host timings vary between runs. The ML-DSA figures moved between about 40 and 56 in repeated runs, though all were large.
-- **Benchmarks (host, release, one run):** ML-KEM-512/768/1024 decapsulation 69, 120 and 156 µs. ML-DSA-44/65/87 signing 1.6, 1.6 and 1.8 ms, and verification 0.21, 0.33 and 0.52 ms. Cortex-M numbers are not measured.
+  - **ML-KEM decapsulation, valid vs invalid ciphertext:** |t| of 1.84 or less at all three levels in an earlier run, and 1.17 or less in the latest run. No leak was detected. Implicit rejection does the same work either way.
+  - **ML-DSA signing, one key vs another:** before the fixed-budget change, |t| was about 40 to 56 for ML-DSA-44 and -65, and about 1.5 for ML-DSA-87. After it, in the latest run, |t| is 0.20 for ML-DSA-44, -0.13 for -65 and 0.43 for -87, all well below 4.5. This is a host measurement of 20,000 samples per class, not evidence of constant time on other hardware.
+  - **Reductions and comparisons** in the signing path are branch-free (masks, not `if`). The NTT and pointwise products use `i64 % q`. On `thumbv7em-none-eabihf` that compiles to 16 calls to the `__aeabi_ldivmod` library routine, whose timing is not checked. That is open.
+  - Host timings vary between runs.
+- **Benchmarks (host, release, one run):** ML-KEM-512/768/1024 decapsulation 60, 88 and 128 µs. ML-DSA-44/65/87 signing 14.4, 20.5 and 27.7 ms (about 9 to 15 times slower than before the fixed budget, which was 1.6, 1.6 and 1.8 ms), and verification 0.22, 0.31 and 0.48 ms. Cortex-M numbers are not measured.
 - **Zeroisation is best effort.** Secret buffers are overwritten on drop, using `core::hint::black_box` to stop the compiler discarding the writes. The crate cannot guarantee that copies made by the caller or by the optimiser are gone.
 - **Heap use.** Internal vectors of polynomials use `alloc`. Keys, signatures and ciphertexts are `Vec<u8>`, so the crate needs an allocator.
 
