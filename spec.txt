@@ -14,6 +14,8 @@ Internal-First Development: No crate is built from scratch for the public. Code 
 Solo-Maintainer Sustainability: The workspace is optimized for a single maintainer. It relies on heavy automation, strict boundaries, and a "benevolent dictator" contribution model.
 3. Workspace Architecture
 The repository is a flat Cargo workspace. All 30 crates reside in a single crates/ directory to simplify CI/CD and dependency management.
+
+Exception: a Rust proc macro must live in a proc-macro crate, which cannot also be a normal library. tpt-dev-contract is one of the 30 crates and is itself a proc-macro crate. #[mock] needs a second one, tpt-dev-mock-macros, which is re-exported by tpt-dev-mock, so users depend only on tpt-dev-mock. The workspace therefore has 30 crates plus this companion. CI builds proc-macro crates for the host only.
 tpt-dev/
 ├── Cargo.toml              # Workspace root & shared dependency definitions
 ├── deny.toml               # cargo-deny configuration (MIT-compatible license enforcement)
@@ -26,7 +28,7 @@ tpt-dev/
     ├── tpt-dev-contract/
     ├── tpt-dev-paged/
     ├── tpt-dev-pqc/
-    └── ... (all 30 crates)
+    └── ... (all 30 crates, plus the tpt-dev-mock-macros companion)
 
 3.1. The deny.toml Configuration (License Enforcement)
 To guarantee the MIT-compatible dependency rule, cargo-deny is integrated into the CI pipeline with the following strict configuration:

@@ -196,6 +196,7 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [x] Comparison examples against raw `build.rs` scripts — *`examples/compare.rs` checks that raw and builder output match*
 
 ### tpt-dev-mock: compile-time zero-boilerplate mocking
+*Layout note: the proc macro lives in `tpt-dev-mock-macros`, a companion proc-macro crate. This is the 31st crate in the workspace, and it is accepted (see spec section 3).*
 - [x] S — *0.1.0 publish deferred to Phase 7*
 - [x] Proc-macro `#[mock]` on traits — *in `tpt-dev-mock-macros` (a proc-macro crate), re-exported by `tpt-dev-mock`*
 - [x] Expectations, call counts and argument matchers — *`with` matchers, `times`, `returns`/`returns_with`, `verify`, `calls`*
