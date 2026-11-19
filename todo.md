@@ -242,12 +242,12 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [x] CLI and report formats — *`tpt-dev-dep` binary with text output and exit codes; no JSON output*
 
 ### tpt-dev-doc: interactive, runnable documentation
-- [ ] S
-- [ ] Extract examples from doc comments
-- [ ] Embedded live REPL for running examples (decided: examples compiled to Wasm and run client-side in the browser, no server)
-- [ ] Rustdoc integration (HTML injection)
-- [ ] Hosting-compatible output for docs.rs
-- [ ] Sandboxing/security review
+- [x] S — *0.1.0 publish deferred to Phase 7*
+- [x] Extract examples from doc comments — *`extract` reads fenced blocks with rustdoc's tags and hidden lines; `doc_comments` takes `///` and `//!` text from source*
+- [ ] Embedded live REPL for running examples (decided: examples compiled to Wasm and run client-side in the browser, no server) — *not done: examples are shown, not run. Needs the `wasm32-unknown-unknown` target (not installed here) and a browser runtime to test.*
+- [ ] Rustdoc integration (HTML injection) — *`inject_before` inserts a fragment before a marker, and reports a missing marker; no build step wires it into `cargo doc` yet*
+- [ ] Hosting-compatible output for docs.rs — *`page` writes a self-contained HTML page with no script or network reference; no build step writes it into a crate's docs yet*
+- [x] Sandboxing/security review — *README section: nothing executes code yet; the review must be repeated when the Wasm runner lands*
 
 ### tpt-dev-profiler: sampling profiler (bounded per-sample cost)
 - [x] S — *0.1.0 publish deferred to Phase 7*
