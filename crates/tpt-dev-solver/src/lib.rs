@@ -6,6 +6,10 @@ extern crate alloc;
 #[cfg(any(test, feature = "std"))]
 extern crate std;
 
+// Lets the shared test generators in `tests/common` name this crate in unit tests.
+#[cfg(test)]
+extern crate self as tpt_dev_solver;
+
 mod proof;
 mod rational;
 mod sat;

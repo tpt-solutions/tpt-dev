@@ -2,6 +2,10 @@
 //! binary uses a different subset of these items.
 #![allow(dead_code, clippy::unwrap_used, clippy::panic)]
 
+// The unit-test build is `no_std`, so it needs these from `std`.
+#[cfg(test)]
+use std::{boxed::Box, vec::Vec};
+
 use tpt_dev_solver::{Arena, FixedArena, Formula, Linear, Rational, Var};
 
 /// A tiny xorshift generator, so the tests are deterministic.

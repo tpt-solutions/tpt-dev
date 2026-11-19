@@ -110,7 +110,7 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [x] Simplex-based linear real arithmetic theory solver — *Dutertre–de Moura with delta-rationals, Bland's rule (`simplex.rs`)*
 - [x] SAT core (CDCL) with DPLL(T) integration — *lazy: theory checked on full assignments; blocking clauses from simplex conflicts (`sat.rs`)*
 - [x] Model extraction
-- [x] Unsat core / proof output — *unsat core (`unsat_core`, deletion-based); Farkas certificates for conjunctive unsat (`unsat_certificate`, `check_farkas`); DRUP-style proofs for Boolean-structured unsat (`unsat_proof`, checked by `check_proof`). The Tseitin encoder is trusted, not checked.*
+- [x] Unsat core / proof output — *unsat core (`unsat_core`, deletion-based); Farkas certificates for conjunctive unsat (`unsat_certificate`, `check_farkas`); DRUP-style proofs for Boolean-structured unsat (`unsat_proof`, checked by `check_proof`). The Tseitin encoder is checked by exhaustive equivalence tests up to 16 CNF variables, not proved for larger sizes.*
 - [x] Incremental solving (push/pop) — *clause database, learned clauses and simplex tableau persist across checks; checked against from-scratch solves on random push/pop sequences. No clause deletion.*
 - [ ] Cross-check against reference results on a test corpus (SMT-LIB QF_LRA benchmarks) — *randomized oracle (DNF + Fourier–Motzkin) passes about 50k random cases (several seeds and depths) with model checks; SMT-LIB corpus not yet available offline*
 - [x] Performance benchmarks and optimisation pass — *`examples/bench.rs`; tableau reuse cut disjunctive v=20 from 579 ms to 119 ms. Branch selection and rational gcd remain hotspots.*

@@ -28,10 +28,23 @@
 //! clause. [`check_proof`] accepts a proof only when every step is valid and
 //! the last step is the empty clause. It never calls the solver.
 //!
-//! The trusted parts are the Tseitin encoder, unit propagation in the
-//! checker, and [`check_farkas`]'s rules. The SAT search, the simplex and
-//! conflict analysis are not trusted: the producer records only what the
-//! checker re-verifies.
+//! The trusted parts are unit propagation in the checker and
+//! [`check_farkas`]'s rules. The SAT search, the simplex and conflict analysis
+//! are not trusted: the producer records only what the checker re-verifies.
+//!
+//! The Tseitin encoder is not trusted either, because its tests check it.
+//! They are in `proof/tests.rs`. For random Boolean formulas over linear atoms,
+//! and for hand-picked edge cases, they enumerate every assignment to the CNF
+//! variables. They check that for each assignment to the atoms, the clauses
+//! have exactly one satisfying extension when the formula is true, and none
+//! when it is false. The formulas use constants, constant atoms, `not`, `and`
+//! and `or` (with empty, one-child and repeated children). `implies` is an `or`
+//! of a `not`. The arena has no `iff` or `ite`. A second test shows that a
+//! proof built on a broken `or` gate is rejected by [`check_proof`].
+//!
+//! The remaining gap is size. The equivalence check only covers CNFs of at
+//! most 16 variables, so the encoder is tested on small formulas, not proved
+//! correct for all of them.
 //!
 //! [`check_farkas`]: crate::check_farkas
 
@@ -288,6 +301,13 @@ pub fn check_proof(arena: &Arena, assertions: &[Formula], proof: &Proof) -> bool
     let Ok(base) = Base::new(arena, assertions, usize::MAX) else {
         return false;
     };
+    check_steps(&base, arena, proof)
+}
+
+/// Checks the steps of `proof` against an already-built base. [`check_proof`]
+/// passes the honest encoder's base. The tests pass bases from other
+/// encoders to show what each one lets through.
+fn check_steps(base: &Base, arena: &Arena, proof: &Proof) -> bool {
     let mut db = base.clauses.clone();
     for step in &proof.steps {
         match step {
@@ -320,3 +340,6 @@ pub fn check_proof(arena: &Arena, assertions: &[Formula], proof: &Proof) -> bool
     }
     matches!(proof.steps.last(), Some(ProofStep::Rup(d)) if d.is_empty())
 }
+
+#[cfg(test)]
+mod tests;
