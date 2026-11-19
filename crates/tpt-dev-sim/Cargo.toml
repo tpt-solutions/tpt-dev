@@ -14,6 +14,9 @@ categories = ["no-std"]
 default = []
 std = []
 
+[dev-dependencies]
+tpt-dev-mem = { version = "0.0.0", path = "../tpt-dev-mem" }
+
 [lints]
 workspace = true
 

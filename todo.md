@@ -324,13 +324,13 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [ ] Conformance tests against sample components
 
 ### tpt-dev-sim: cycle-accurate hardware simulator
-- [ ] S
-- [ ] Signal/clock/event kernel (fixed-capacity option)
-- [ ] Cycle-accurate scheduling model
-- [ ] Component/module description API in safe Rust
-- [ ] Waveform output (e.g. VCD)
-- [ ] Example: a small CPU or peripheral model with timing checks
-- [ ] Integration with tpt-dev-mem for MMIO modelling
+- [x] S — *0.1.0 publish deferred to Phase 7*
+- [x] Signal/clock/event kernel (fixed-capacity option) — *`Kernel<N>` holds up to N signals in arrays and allocates nothing; single clock; no event queue (cycle-based only)*
+- [x] Cycle-accurate scheduling model — *two-phase cycle: components read committed values and write next values; writes commit together, so order does not matter; every value is registered (one-cycle delay)*
+- [x] Component/module description API in safe Rust — *`Component::tick` with `Ctx` (`read`, `write`, `fail`); `step` takes a list of components*
+- [x] Waveform output (e.g. VCD) — *`Vcd` writes to any `core::fmt::Write`*
+- [x] Example: a small CPU or peripheral model with timing checks — *`timer::Timer` peripheral with `Deadline` and `MinGap` checks; no CPU model*
+- [x] Integration with tpt-dev-mem for MMIO modelling — *`tests/timer_mmio.rs`: firmware uses `tpt-dev-mem` `Reg` handles on the timer's register memory*
 
 ---
 
