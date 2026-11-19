@@ -66,21 +66,41 @@ impl Verdict {
 pub fn judge(samples: &[f64], base: &Entry, policy: Policy) -> Option<Verdict> {
     let kept = trim_outliers(samples);
     let cur = summarise(&kept)?;
-    if cur.n < 2 || base.n < 2 || base.mean == 0.0 {
+    decide(cur.mean, cur.stddev, cur.n, base, policy)
+}
+
+/// Compares an already-summarised run with a recorded baseline.
+///
+/// This is [`judge`] for a run that was stored as an [`Entry`], such as one
+/// line of a results file. The run's outliers must already have been trimmed
+/// when its entry was produced. Returns `None` if `current.n` or `base.n` is
+/// below two, or if the baseline mean is zero.
+pub fn judge_entry(current: &Entry, base: &Entry, policy: Policy) -> Option<Verdict> {
+    decide(current.mean, current.stddev, current.n, base, policy)
+}
+
+fn decide(
+    cur_mean: f64,
+    cur_stddev: f64,
+    cur_n: usize,
+    base: &Entry,
+    policy: Policy,
+) -> Option<Verdict> {
+    if cur_n < 2 || base.n < 2 || base.mean == 0.0 {
         return None;
     }
     let se =
-        sqrt(cur.stddev * cur.stddev / cur.n as f64 + base.stddev * base.stddev / base.n as f64);
+        sqrt(cur_stddev * cur_stddev / cur_n as f64 + base.stddev * base.stddev / base.n as f64);
     let t = if se == 0.0 {
-        if cur.mean == base.mean {
+        if cur_mean == base.mean {
             0.0
         } else {
-            f64::INFINITY * (cur.mean - base.mean).signum()
+            f64::INFINITY * (cur_mean - base.mean).signum()
         }
     } else {
-        (cur.mean - base.mean) / se
+        (cur_mean - base.mean) / se
     };
-    let change_pct = (cur.mean - base.mean) / base.mean * 100.0;
+    let change_pct = (cur_mean - base.mean) / base.mean * 100.0;
     let trusted = t.abs() >= policy.critical_t;
     Some(if change_pct > policy.max_regression_pct {
         if trusted {

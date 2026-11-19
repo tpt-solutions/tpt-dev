@@ -7,6 +7,7 @@ extern crate alloc;
 extern crate std;
 
 mod baseline;
+mod cycles;
 mod gate;
 mod stats;
 
@@ -14,5 +15,6 @@ mod stats;
 pub mod harness;
 
 pub use baseline::{Baseline, Entry, ParseError};
-pub use gate::{Policy, Verdict, judge};
+pub use cycles::{CycleSource, ManualCycles, measure_with};
+pub use gate::{Policy, Verdict, judge, judge_entry};
 pub use stats::{Comparison, Summary, compare, summarise, trim_outliers};

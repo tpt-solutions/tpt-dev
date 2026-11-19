@@ -1,0 +1,68 @@
+# Example CI job: fail a pull request when a benchmark regresses against the
+# baseline committed on the base branch.
+#
+# To use it, copy this file to .github/workflows/bench-gate.yml and replace the
+# placeholders marked PLACEHOLDER. The benchmark runner is a bench example in
+# your own crate that prints or writes results in the tpt-dev-bench Baseline
+# text format (`name mean stddev n` per line). The baseline is a file in the
+# base branch, updated by hand and reviewed in version control.
+#
+# Trust model: `pull_request` runs without secrets, and the gate itself is built
+# from the base branch checkout, so a pull request cannot weaken the gate by
+# editing it. The benchmark code comes from the pull request and is not trusted.
+#
+# Caveat: shared CI runners are noisy. Expect occasional inconclusive results.
+# The gate only fails on a trusted regression (large t statistic), so noise is
+# reported but does not block the merge.
+
+name: bench-gate
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  bench-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out the pull request
+        uses: actions/checkout@v4
+        with:
+          path: pr
+
+      - name: Check out the base branch (baseline and gate)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.base_ref }}
+          path: base
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            pr
+            base
+
+      - name: Run benchmarks from the pull request
+        working-directory: pr
+        # PLACEHOLDER: the bench example in your crate that writes the results file.
+        run: >
+          cargo run --release -p PLACEHOLDER-BENCH-CRATE
+          --example PLACEHOLDER-BENCH-EXAMPLE
+          -- "$GITHUB_WORKSPACE/results.txt"
+
+      - name: Gate against the base baseline
+        working-directory: base
+        # Runs the gate from the base checkout, so the pull request cannot change it.
+        # PLACEHOLDER: the baseline file path inside the base branch.
+        run: >
+          cargo run --release -p tpt-dev-bench --example gate --
+          "$GITHUB_WORKSPACE/base/PLACEHOLDER-BASELINE-PATH"
+          "$GITHUB_WORKSPACE/results.txt"
+          --max-regression-pct 10 --critical-t 2
