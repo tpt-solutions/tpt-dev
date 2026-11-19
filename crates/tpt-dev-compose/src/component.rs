@@ -4,16 +4,27 @@
 //! count of vector sections, custom section names, embedded core modules, and
 //! nested components. It parses embedded core modules with [`crate::module`].
 //!
-//! It does not decode the contents of the vector sections. Their items (types,
-//! imports, exports, aliases, canonical functions and instances) are not read,
-//! so their names and signatures are not available here. Section order is not
+//! Imports (section 10) and exports (section 11) are decoded: their names, the
+//! kind of each, and the index or type descriptor each one carries. Only the
+//! kinds core module, func, value, type, instance and component are decoded.
+//! Core exports other than modules are refused with [`ErrorKind::UnsupportedSort`].
+//!
+//! The other vector sections (aliases, canonical functions and instances) are
+//! not decoded, so their items are not available here. Section order is not
 //! enforced, since components may place sections in any order.
+//!
+//! Index bounds are checked against an upper bound on each index space. The
+//! sections that define entries in a space are counted, along with aliases, which
+//! may define entries in any space. An index at or beyond that bound is refused.
+//! An index inside the bound is not checked further, because the aliases are not
+//! decoded.
 
+use alloc::collections::BTreeSet;
 use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::module::{self, ErrorKind, Module, ParseError};
-use crate::types::{self, TypeDef};
+use crate::types::{self, TypeDef, ValueType};
 
 /// The deepest nesting of components the parser accepts.
 pub const MAX_DEPTH: usize = 16;
@@ -23,6 +34,178 @@ pub const MAX_DEPTH: usize = 16;
 pub struct Component {
     /// The sections, in the order they appear.
     pub sections: Vec<Section>,
+}
+
+impl Component {
+    /// Every import of the component, in the order the sections give them.
+    pub fn imports(&self) -> impl Iterator<Item = &ComponentImport> {
+        self.sections
+            .iter()
+            .filter_map(|s| s.imports.as_deref())
+            .flatten()
+    }
+
+    /// Every export of the component, in the order the sections give them.
+    pub fn exports(&self) -> impl Iterator<Item = &ComponentExport> {
+        self.sections
+            .iter()
+            .filter_map(|s| s.exports.as_deref())
+            .flatten()
+    }
+
+    /// The type at `index` in the component's type index space, if it is a
+    /// type this parser decodes.
+    ///
+    /// Returns `None` when the index names a type that is not decoded, when it
+    /// is an import of a type, or when an alias section comes before it, since
+    /// an alias may define types and is not decoded.
+    pub fn type_def(&self, index: u32) -> Option<&TypeDef> {
+        let want = u64::from(index);
+        let mut pos: u64 = 0;
+        for s in &self.sections {
+            match s.id {
+                6 => return None,
+                7 => {
+                    let n = u64::from(s.count.unwrap_or(0));
+                    if want < pos + n {
+                        let defs = s.types.as_ref()?;
+                        return defs.get(usize::try_from(want - pos).ok()?);
+                    }
+                    pos += n;
+                }
+                10 => {
+                    for import in s.imports.iter().flatten() {
+                        if let ExternDesc::Type(_) = import.desc {
+                            if pos == want {
+                                return None;
+                            }
+                            pos += 1;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+}
+
+/// An index space of a component. Each sort of import or export names an entry
+/// in one of these.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Space {
+    /// Core modules.
+    CoreModule,
+    /// Core types.
+    CoreType,
+    /// Core instances.
+    CoreInstance,
+    /// Core functions.
+    CoreFunc,
+    /// Component functions.
+    Func,
+    /// Values.
+    Value,
+    /// Component types.
+    Type,
+    /// Component instances.
+    Instance,
+    /// Components.
+    Component,
+}
+
+/// The kind of a component-level import or export.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExternKind {
+    /// A core module.
+    CoreModule,
+    /// A function.
+    Func,
+    /// A value.
+    Value,
+    /// A type.
+    Type,
+    /// An instance.
+    Instance,
+    /// A component.
+    Component,
+}
+
+impl ExternKind {
+    /// The index space an export of this kind names an entry in.
+    fn space(self) -> Space {
+        match self {
+            ExternKind::CoreModule => Space::CoreModule,
+            ExternKind::Func => Space::Func,
+            ExternKind::Value => Space::Value,
+            ExternKind::Type => Space::Type,
+            ExternKind::Instance => Space::Instance,
+            ExternKind::Component => Space::Component,
+        }
+    }
+}
+
+/// The bound a type import places on the type it names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TypeBound {
+    /// The type is equal to the type at this index.
+    Eq(u32),
+    /// The type is a resource whose identity is new.
+    SubResource,
+}
+
+/// The descriptor of an import: what it needs. An export may also carry one,
+/// which gives the type the export is declared with.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ExternDesc {
+    /// A core module of the core type at this index.
+    CoreModule(u32),
+    /// A function of the component type at this index.
+    Func(u32),
+    /// A value of this type.
+    Value(ValueType),
+    /// A type, bounded as given.
+    Type(TypeBound),
+    /// An instance of the component type at this index.
+    Instance(u32),
+    /// A component of the component type at this index.
+    Component(u32),
+}
+
+impl ExternDesc {
+    /// The kind this descriptor describes.
+    pub fn kind(&self) -> ExternKind {
+        match self {
+            ExternDesc::CoreModule(_) => ExternKind::CoreModule,
+            ExternDesc::Func(_) => ExternKind::Func,
+            ExternDesc::Value(_) => ExternKind::Value,
+            ExternDesc::Type(_) => ExternKind::Type,
+            ExternDesc::Instance(_) => ExternKind::Instance,
+            ExternDesc::Component(_) => ExternKind::Component,
+        }
+    }
+}
+
+/// One entry of a component's import section.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ComponentImport {
+    /// The name the import is known by.
+    pub name: String,
+    /// What the import needs.
+    pub desc: ExternDesc,
+}
+
+/// One entry of a component's export section.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ComponentExport {
+    /// The name the export is known by.
+    pub name: String,
+    /// The kind of entity exported.
+    pub kind: ExternKind,
+    /// The index of the exported entity in its index space.
+    pub index: u32,
+    /// The declared type of the export, if the binary gives one.
+    pub desc: Option<ExternDesc>,
 }
 
 /// One section of a component.
@@ -46,6 +229,10 @@ pub struct Section {
     /// section holds a type kind this parser does not decode (instance,
     /// component or resource types, or a module type).
     pub types: Option<Vec<TypeDef>>,
+    /// For import sections (id 10), the imports, in order.
+    pub imports: Option<Vec<ComponentImport>>,
+    /// For export sections (id 11), the exports, in order.
+    pub exports: Option<Vec<ComponentExport>>,
 }
 
 impl Section {
@@ -121,6 +308,8 @@ fn parse_at(bytes: &[u8], base: usize, depth: usize) -> Result<Component, ParseE
             core_module: None,
             nested: None,
             types: None,
+            imports: None,
+            exports: None,
         };
         match id {
             0 => {
@@ -154,7 +343,41 @@ fn parse_at(bytes: &[u8], base: usize, depth: usize) -> Result<Component, ParseE
                     return Err(s.err(ErrorKind::TrailingBytes));
                 }
             }
-            2 | 3 | 5 | 6 | 8 | 10 | 11 | 12 => {
+            10 => {
+                let mut s = Reader {
+                    bytes: body,
+                    pos: 0,
+                    base: body_base,
+                };
+                let n = s.count()?;
+                section.count = Some(n);
+                let mut imports = Vec::with_capacity(n as usize);
+                for _ in 0..n {
+                    imports.push(import(&mut s)?);
+                }
+                if !s.done() {
+                    return Err(s.err(ErrorKind::TrailingBytes));
+                }
+                section.imports = Some(imports);
+            }
+            11 => {
+                let mut s = Reader {
+                    bytes: body,
+                    pos: 0,
+                    base: body_base,
+                };
+                let n = s.count()?;
+                section.count = Some(n);
+                let mut exports = Vec::with_capacity(n as usize);
+                for _ in 0..n {
+                    exports.push(export(&mut s)?);
+                }
+                if !s.done() {
+                    return Err(s.err(ErrorKind::TrailingBytes));
+                }
+                section.exports = Some(exports);
+            }
+            2 | 3 | 5 | 6 | 8 | 12 => {
                 let mut s = Reader {
                     bytes: body,
                     pos: 0,
@@ -167,7 +390,235 @@ fn parse_at(bytes: &[u8], base: usize, depth: usize) -> Result<Component, ParseE
         }
         sections.push(section);
     }
+    let bounds = Bounds::of(&sections);
+    for s in &sections {
+        for import in s.imports.iter().flatten() {
+            check_desc(&bounds, &import.desc).map_err(|k| err(s.offset, k))?;
+        }
+        for export in s.exports.iter().flatten() {
+            let space = export.kind.space();
+            check_index(&bounds, space, export.index).map_err(|k| err(s.offset, k))?;
+            if let Some(desc) = &export.desc {
+                check_desc(&bounds, desc).map_err(|k| err(s.offset, k))?;
+            }
+        }
+    }
+    check_names(&sections)?;
     Ok(Component { sections })
+}
+
+/// Reads an extern name: a 0x00 flag, then a length-prefixed UTF-8 name.
+fn extern_name(r: &mut Reader<'_>) -> Result<String, ParseError> {
+    match r.byte()? {
+        0x00 => r.name(),
+        other => Err(r.err(ErrorKind::BadExternName(other))),
+    }
+}
+
+/// Reads an optional-field flag, which is 0x00 for none and 0x01 for some.
+fn option_flag(r: &mut Reader<'_>) -> Result<bool, ParseError> {
+    match r.byte()? {
+        0x00 => Ok(false),
+        0x01 => Ok(true),
+        other => Err(r.err(ErrorKind::BadOptionFlag(other))),
+    }
+}
+
+/// Reads a type bound: 0x00 and a type index, or 0x01 for a sub resource.
+fn type_bound(r: &mut Reader<'_>) -> Result<TypeBound, ParseError> {
+    match r.byte()? {
+        0x00 => Ok(TypeBound::Eq(r.u32()?)),
+        0x01 => Ok(TypeBound::SubResource),
+        other => Err(r.err(ErrorKind::BadTypeBound(other))),
+    }
+}
+
+/// Reads an extern descriptor. A core module is 0x00 0x11 and a type index.
+fn extern_desc(r: &mut Reader<'_>) -> Result<ExternDesc, ParseError> {
+    let tag = r.byte()?;
+    Ok(match tag {
+        0x00 => match r.byte()? {
+            0x11 => ExternDesc::CoreModule(r.u32()?),
+            other => return Err(r.err(ErrorKind::BadExternKind(other))),
+        },
+        0x01 => ExternDesc::Func(r.u32()?),
+        0x02 => ExternDesc::Value(types::value_type(r)?),
+        0x03 => ExternDesc::Type(type_bound(r)?),
+        0x04 => ExternDesc::Component(r.u32()?),
+        0x05 => ExternDesc::Instance(r.u32()?),
+        other => return Err(r.err(ErrorKind::BadExternKind(other))),
+    })
+}
+
+/// Reads one import: a name, then its descriptor.
+fn import(r: &mut Reader<'_>) -> Result<ComponentImport, ParseError> {
+    let name = extern_name(r)?;
+    let desc = extern_desc(r)?;
+    Ok(ComponentImport { name, desc })
+}
+
+/// Reads one export: a name, a sort and an index, then an optional descriptor.
+fn export(r: &mut Reader<'_>) -> Result<ComponentExport, ParseError> {
+    let name = extern_name(r)?;
+    let kind = match r.byte()? {
+        0x00 => match r.byte()? {
+            0x11 => ExternKind::CoreModule,
+            other => return Err(r.err(ErrorKind::UnsupportedSort(other))),
+        },
+        0x01 => ExternKind::Func,
+        0x02 => ExternKind::Value,
+        0x03 => ExternKind::Type,
+        0x04 => ExternKind::Component,
+        0x05 => ExternKind::Instance,
+        other => return Err(r.err(ErrorKind::BadSort(other))),
+    };
+    let index = r.u32()?;
+    let desc = if option_flag(r)? {
+        let d = extern_desc(r)?;
+        if d.kind() != kind {
+            return Err(r.err(ErrorKind::DescKindMismatch));
+        }
+        Some(d)
+    } else {
+        None
+    };
+    Ok(ComponentExport {
+        name,
+        kind,
+        index,
+        desc,
+    })
+}
+
+/// Upper bounds on the size of each index space, as the sections define it.
+struct Bounds {
+    core_module: u64,
+    core_type: u64,
+    core_instance: u64,
+    core_func: u64,
+    func: u64,
+    value: u64,
+    ty: u64,
+    instance: u64,
+    component: u64,
+}
+
+impl Bounds {
+    /// Counts what each section can add to each space. An alias may add an
+    /// entry to any space, so the alias count is added to every space.
+    fn of(sections: &[Section]) -> Self {
+        let mut b = Bounds {
+            core_module: 0,
+            core_type: 0,
+            core_instance: 0,
+            core_func: 0,
+            func: 0,
+            value: 0,
+            ty: 0,
+            instance: 0,
+            component: 0,
+        };
+        let mut aliases = 0u64;
+        for s in sections {
+            // A core module and a nested component are one entry per section.
+            let n = match s.id {
+                1 | 4 => 1,
+                0 | 9 => 0,
+                _ => u64::from(s.count.unwrap_or(0)),
+            };
+            match s.id {
+                1 => b.core_module += n,
+                2 => b.core_instance += n,
+                3 => b.core_type += n,
+                4 => b.component += n,
+                5 => b.instance += n,
+                6 => aliases += n,
+                7 => b.ty += n,
+                // Each canonical function is a lifted function or a lowered core function.
+                8 => {
+                    b.func += n;
+                    b.core_func += n;
+                }
+                12 => b.value += n,
+                _ => {}
+            }
+            for import in s.imports.iter().flatten() {
+                match import.desc.kind() {
+                    ExternKind::CoreModule => b.core_module += 1,
+                    ExternKind::Func => b.func += 1,
+                    ExternKind::Value => b.value += 1,
+                    ExternKind::Type => b.ty += 1,
+                    ExternKind::Instance => b.instance += 1,
+                    ExternKind::Component => b.component += 1,
+                }
+            }
+        }
+        b.core_module += aliases;
+        b.core_type += aliases;
+        b.core_instance += aliases;
+        b.core_func += aliases;
+        b.func += aliases;
+        b.value += aliases;
+        b.ty += aliases;
+        b.instance += aliases;
+        b.component += aliases;
+        b
+    }
+
+    fn limit(&self, space: Space) -> u64 {
+        match space {
+            Space::CoreModule => self.core_module,
+            Space::CoreType => self.core_type,
+            Space::CoreInstance => self.core_instance,
+            Space::CoreFunc => self.core_func,
+            Space::Func => self.func,
+            Space::Value => self.value,
+            Space::Type => self.ty,
+            Space::Instance => self.instance,
+            Space::Component => self.component,
+        }
+    }
+}
+
+fn check_index(bounds: &Bounds, space: Space, index: u32) -> Result<(), ErrorKind> {
+    if u64::from(index) < bounds.limit(space) {
+        Ok(())
+    } else {
+        Err(ErrorKind::BadComponentIndex(space, index))
+    }
+}
+
+/// Checks the type index a descriptor names, against the space it names.
+fn check_desc(bounds: &Bounds, desc: &ExternDesc) -> Result<(), ErrorKind> {
+    match desc {
+        ExternDesc::CoreModule(i) => check_index(bounds, Space::CoreType, *i),
+        ExternDesc::Func(i) | ExternDesc::Instance(i) | ExternDesc::Component(i) => {
+            check_index(bounds, Space::Type, *i)
+        }
+        ExternDesc::Value(ValueType::Index(i)) => check_index(bounds, Space::Type, *i),
+        ExternDesc::Value(ValueType::Primitive(_)) => Ok(()),
+        ExternDesc::Type(TypeBound::Eq(i)) => check_index(bounds, Space::Type, *i),
+        ExternDesc::Type(TypeBound::SubResource) => Ok(()),
+    }
+}
+
+/// Refuses two imports with one name, and two exports with one name.
+fn check_names(sections: &[Section]) -> Result<(), ParseError> {
+    let mut imports = BTreeSet::new();
+    let mut exports = BTreeSet::new();
+    for s in sections {
+        for import in s.imports.iter().flatten() {
+            if !imports.insert(import.name.as_str()) {
+                return Err(err(s.offset, ErrorKind::DuplicateImport));
+            }
+        }
+        for export in s.exports.iter().flatten() {
+            if !exports.insert(export.name.as_str()) {
+                return Err(err(s.offset, ErrorKind::DuplicateExport));
+            }
+        }
+    }
+    Ok(())
 }
 
 pub(crate) struct Reader<'a> {

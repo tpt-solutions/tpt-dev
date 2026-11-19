@@ -270,7 +270,7 @@ fn names(r: &mut Reader<'_>) -> Result<Vec<String>, ParseError> {
 
 /// Reads a value type. A primitive is a single byte from 0x73 to 0x7f. Any other
 /// value is a non-negative signed integer that gives a type index.
-fn value_type(r: &mut Reader<'_>) -> Result<ValueType, ParseError> {
+pub(crate) fn value_type(r: &mut Reader<'_>) -> Result<ValueType, ParseError> {
     let b = r.peek()?;
     if let Some(p) = primitive(b) {
         r.byte()?;

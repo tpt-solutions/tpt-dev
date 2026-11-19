@@ -6,7 +6,15 @@
 //! import is bound to. Executing a plan needs a WebAssembly engine, which this
 //! crate does not provide.
 //!
-//! Every import kind is resolved: functions, tables, memories, globals and
+//! Component-level imports are resolved too, by name and kind, against the
+//! exports of the registered components. A component import may be bound only
+//! to a single export of its kind, with that name, across all registered
+//! components. The types of function and primitive value imports are compared
+//! where both sides decode, with parameter and result labels ignored. Other
+//! component imports are checked by name and kind only. The plan records these
+//! bindings as data. Nothing here instantiates a component either.
+//!
+//! Every core import kind is resolved: functions, tables, memories, globals and
 //! tags. Each one is checked against its export at the level of types. A
 //! function's signature must match exactly. A table's element type must match,
 //! and its limits must fit within the imported ones. A memory's limits must
@@ -18,7 +26,9 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt;
 
+use crate::component::{Component, ExternDesc, ExternKind};
 use crate::module::{ExportKind, ImportDesc, Limits, Module};
+use crate::types::{FuncType, TypeDef, ValueType};
 
 /// Why a set of modules does not link.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -56,6 +66,33 @@ pub enum LinkError {
     },
     /// The modules depend on each other in a cycle. These modules could not be ordered.
     Cycle(Vec<String>),
+    /// A component import has no export of its kind and name in any registered component.
+    UnknownComponentExport {
+        /// The importing component.
+        importer: String,
+        /// The name the import asks for.
+        name: String,
+        /// The kind of export the import needs.
+        kind: ExternKind,
+    },
+    /// More than one registered component exports the imported name with the imported kind.
+    AmbiguousComponentExport {
+        /// The importing component.
+        importer: String,
+        /// The name the import asks for.
+        name: String,
+        /// The kind of export the import needs.
+        kind: ExternKind,
+    },
+    /// The provider's declared type does not match the import's type.
+    ComponentTypeMismatch {
+        /// The importing component.
+        importer: String,
+        /// The name the import asks for.
+        name: String,
+        /// The kind of export the import needs.
+        kind: ExternKind,
+    },
 }
 
 fn kind_name(kind: ExportKind) -> &'static str {
@@ -65,6 +102,17 @@ fn kind_name(kind: ExportKind) -> &'static str {
         ExportKind::Memory => "memory",
         ExportKind::Global => "global",
         ExportKind::Tag => "tag",
+    }
+}
+
+fn extern_kind_name(kind: ExternKind) -> &'static str {
+    match kind {
+        ExternKind::CoreModule => "core module",
+        ExternKind::Func => "function",
+        ExternKind::Value => "value",
+        ExternKind::Type => "type",
+        ExternKind::Instance => "instance",
+        ExternKind::Component => "component",
     }
 }
 
@@ -98,6 +146,33 @@ impl fmt::Display for LinkError {
             LinkError::Cycle(names) => {
                 write!(f, "modules depend on each other: {}", names.join(", "))
             }
+            LinkError::UnknownComponentExport {
+                importer,
+                name,
+                kind,
+            } => write!(
+                f,
+                "{importer} imports {name}, which no registered component exports as a {}",
+                extern_kind_name(*kind)
+            ),
+            LinkError::AmbiguousComponentExport {
+                importer,
+                name,
+                kind,
+            } => write!(
+                f,
+                "{importer} imports {name}, which more than one component exports as a {}",
+                extern_kind_name(*kind)
+            ),
+            LinkError::ComponentTypeMismatch {
+                importer,
+                name,
+                kind,
+            } => write!(
+                f,
+                "{importer} imports {name} with the wrong {} type",
+                extern_kind_name(*kind)
+            ),
         }
     }
 }
@@ -117,23 +192,51 @@ pub struct Binding {
     pub kind: ExportKind,
 }
 
-/// A checked plan for instantiating a set of modules.
+/// One resolved component-level import.
 ///
-/// The plan is data only. Nothing here instantiates a module or runs code.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Plan {
-    /// Registered names, in registration order.
-    pub names: Vec<String>,
-    /// Registry indices in an order where every provider comes before its consumers.
-    pub order: Vec<usize>,
-    /// Every resolved import, of every kind.
-    pub bindings: Vec<Binding>,
+/// The indices are positions in the flattened import and export lists of the
+/// components, as [`Component::imports`] and [`Component::exports`] give them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ComponentBinding {
+    /// Index of the importing component in the registry's component list.
+    pub importer: usize,
+    /// Index of the import in the importer's flattened import list.
+    pub import: usize,
+    /// Index of the providing component in the registry's component list.
+    pub provider: usize,
+    /// Index of the export in the provider's flattened export list.
+    pub export: usize,
+    /// The kind of the import, which is also the kind of the export.
+    pub kind: ExternKind,
 }
 
-/// A set of named modules to link together.
+/// A checked plan for instantiating a set of modules and components.
+///
+/// The plan is data only. Nothing here instantiates a module or a component,
+/// or runs code.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Plan {
+    /// Registered module names, in registration order.
+    pub names: Vec<String>,
+    /// Module registry indices in an order where every provider comes before its consumers.
+    pub order: Vec<usize>,
+    /// Every resolved core-module import, of every kind.
+    pub bindings: Vec<Binding>,
+    /// Registered component names, in registration order.
+    pub component_names: Vec<String>,
+    /// Component registry indices in an order where every provider comes before its consumers.
+    pub component_order: Vec<usize>,
+    /// Every resolved component-level import, of every kind.
+    pub component_bindings: Vec<ComponentBinding>,
+}
+
+/// A set of named modules and components to link together.
+///
+/// Module and component names share one namespace, so a name is registered once.
 #[derive(Debug, Default)]
 pub struct Registry<'a> {
     modules: Vec<(String, &'a Module)>,
+    components: Vec<(String, &'a Component)>,
 }
 
 /// Whether a provider's limits satisfy an import's limits: the provider's
@@ -154,24 +257,56 @@ impl<'a> Registry<'a> {
     pub const fn new() -> Self {
         Self {
             modules: Vec::new(),
+            components: Vec::new(),
         }
     }
 
     /// Registers `module` under `name`, and returns its index.
     pub fn register(&mut self, name: &str, module: &'a Module) -> Result<usize, LinkError> {
-        if self.find(name).is_some() {
+        if self.taken(name) {
             return Err(LinkError::DuplicateName(String::from(name)));
         }
         self.modules.push((String::from(name), module));
         Ok(self.modules.len() - 1)
     }
 
+    /// Registers `component` under `name`, and returns its index in the component list.
+    pub fn register_component(
+        &mut self,
+        name: &str,
+        component: &'a Component,
+    ) -> Result<usize, LinkError> {
+        if self.taken(name) {
+            return Err(LinkError::DuplicateName(String::from(name)));
+        }
+        self.components.push((String::from(name), component));
+        Ok(self.components.len() - 1)
+    }
+
+    fn taken(&self, name: &str) -> bool {
+        self.find(name).is_some() || self.components.iter().any(|(n, _)| n == name)
+    }
+
     fn find(&self, name: &str) -> Option<usize> {
         self.modules.iter().position(|(n, _)| n == name)
     }
 
-    /// Resolves every import, checks every type, and orders the modules.
+    /// Resolves every import, checks every type, and orders the modules and components.
     pub fn link(&self) -> Result<Plan, LinkError> {
+        let (bindings, order) = self.link_modules()?;
+        let (component_bindings, component_order) = self.link_components()?;
+        Ok(Plan {
+            names: self.modules.iter().map(|(n, _)| n.clone()).collect(),
+            order,
+            bindings,
+            component_names: self.components.iter().map(|(n, _)| n.clone()).collect(),
+            component_order,
+            component_bindings,
+        })
+    }
+
+    /// Resolves the core-module imports, and returns the bindings and the order.
+    fn link_modules(&self) -> Result<(Vec<Binding>, Vec<usize>), LinkError> {
         let n = self.modules.len();
         let mut bindings = Vec::new();
         let mut deps: Vec<Vec<usize>> = vec![Vec::new(); n];
@@ -241,33 +376,151 @@ impl<'a> Registry<'a> {
             }
         }
 
-        // Kahn's algorithm: a module is ready once everything it imports from is placed.
-        let mut waiting: Vec<usize> = deps.iter().map(Vec::len).collect();
-        let mut placed = vec![false; n];
-        let mut order = Vec::with_capacity(n);
-        while let Some(next) = (0..n).find(|&i| !placed[i] && waiting[i] == 0) {
-            placed[next] = true;
-            order.push(next);
-            for (i, d) in deps.iter().enumerate() {
-                if d.contains(&next) {
-                    waiting[i] -= 1;
+        let order = topological_order(&deps).map_err(|stuck| {
+            LinkError::Cycle(stuck.iter().map(|&i| self.modules[i].0.clone()).collect())
+        })?;
+        Ok((bindings, order))
+    }
+
+    /// Resolves the component-level imports, and returns the bindings and the order.
+    fn link_components(&self) -> Result<(Vec<ComponentBinding>, Vec<usize>), LinkError> {
+        let n = self.components.len();
+        let mut bindings = Vec::new();
+        let mut deps: Vec<Vec<usize>> = vec![Vec::new(); n];
+
+        for (i, (importer, component)) in self.components.iter().enumerate() {
+            for (k, import) in component.imports().enumerate() {
+                let kind = import.desc.kind();
+                let mut matches = 0usize;
+                let mut found = None;
+                for (j, (_, provider)) in self.components.iter().enumerate() {
+                    for (e, export) in provider.exports().enumerate() {
+                        if export.kind == kind && export.name == import.name {
+                            matches += 1;
+                            found = Some((j, e, *provider, export));
+                        }
+                    }
+                }
+                let (j, e, provider, export) = match found {
+                    Some(f) if matches == 1 => f,
+                    _ if matches == 0 => {
+                        return Err(LinkError::UnknownComponentExport {
+                            importer: importer.clone(),
+                            name: import.name.clone(),
+                            kind,
+                        });
+                    }
+                    _ => {
+                        return Err(LinkError::AmbiguousComponentExport {
+                            importer: importer.clone(),
+                            name: import.name.clone(),
+                            kind,
+                        });
+                    }
+                };
+                if !desc_fits(&import.desc, component, export.desc.as_ref(), provider) {
+                    return Err(LinkError::ComponentTypeMismatch {
+                        importer: importer.clone(),
+                        name: import.name.clone(),
+                        kind,
+                    });
+                }
+                bindings.push(ComponentBinding {
+                    importer: i,
+                    import: k,
+                    provider: j,
+                    export: e,
+                    kind,
+                });
+                if !deps[i].contains(&j) {
+                    deps[i].push(j);
                 }
             }
         }
-        if order.len() != n {
-            let stuck = (0..n)
-                .filter(|&i| !placed[i])
-                .map(|i| self.modules[i].0.clone())
-                .collect();
-            return Err(LinkError::Cycle(stuck));
-        }
 
-        Ok(Plan {
-            names: self.modules.iter().map(|(n, _)| n.clone()).collect(),
-            order,
-            bindings,
-        })
+        let order = topological_order(&deps).map_err(|stuck| {
+            LinkError::Cycle(
+                stuck
+                    .iter()
+                    .map(|&i| self.components[i].0.clone())
+                    .collect(),
+            )
+        })?;
+        Ok((bindings, order))
     }
+}
+
+/// Orders nodes so that every node comes after the nodes it depends on. On a
+/// cycle, returns the nodes that could not be placed.
+fn topological_order(deps: &[Vec<usize>]) -> Result<Vec<usize>, Vec<usize>> {
+    let n = deps.len();
+    // Kahn's algorithm: a node is ready once everything it depends on is placed.
+    let mut waiting: Vec<usize> = deps.iter().map(Vec::len).collect();
+    let mut placed = vec![false; n];
+    let mut order = Vec::with_capacity(n);
+    while let Some(next) = (0..n).find(|&i| !placed[i] && waiting[i] == 0) {
+        placed[next] = true;
+        order.push(next);
+        for (i, d) in deps.iter().enumerate() {
+            if d.contains(&next) {
+                waiting[i] -= 1;
+            }
+        }
+    }
+    if order.len() == n {
+        Ok(order)
+    } else {
+        Err((0..n).filter(|&i| !placed[i]).collect())
+    }
+}
+
+/// Whether a provider's descriptor fits an import's descriptor, as far as the
+/// two can be compared. A pair that cannot be compared is not refused.
+///
+/// A function is compared when both types decode. A primitive value is compared
+/// when both are primitives. Other pairs fit by name and kind alone.
+fn desc_fits(
+    want: &ExternDesc,
+    importer: &Component,
+    have: Option<&ExternDesc>,
+    provider: &Component,
+) -> bool {
+    match (want, have) {
+        (ExternDesc::Func(a), Some(ExternDesc::Func(b))) => {
+            match (importer.type_def(*a), provider.type_def(*b)) {
+                (Some(TypeDef::Func(x)), Some(TypeDef::Func(y))) => same_func(x, y),
+                _ => true,
+            }
+        }
+        (
+            ExternDesc::Value(ValueType::Primitive(p)),
+            Some(ExternDesc::Value(ValueType::Primitive(q))),
+        ) => p == q,
+        _ => true,
+    }
+}
+
+/// Whether two function types have the same parameter and result types. Labels
+/// are ignored. A type that names another type by index is not compared, since
+/// the index means something different in each component, so it is not refused.
+fn same_func(x: &FuncType, y: &FuncType) -> bool {
+    let plain = |f: &FuncType| {
+        f.params
+            .iter()
+            .chain(f.results.iter())
+            .all(|field| matches!(field.ty, ValueType::Primitive(_)))
+    };
+    if !plain(x) || !plain(y) {
+        return true;
+    }
+    x.params
+        .iter()
+        .map(|f| f.ty)
+        .eq(y.params.iter().map(|f| f.ty))
+        && x.results
+            .iter()
+            .map(|f| f.ty)
+            .eq(y.results.iter().map(|f| f.ty))
 }
 
 #[cfg(test)]

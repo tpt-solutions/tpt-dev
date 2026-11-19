@@ -15,6 +15,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
 
+use crate::component::Space;
+
 /// A value type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ValType {
@@ -340,6 +342,24 @@ pub enum ErrorKind {
     NotAComponent,
     /// Components are nested deeper than the parser allows.
     NestingTooDeep,
+    /// A component extern name starts with a byte other than 0x00.
+    BadExternName(u8),
+    /// A component extern descriptor, or the core sort of an import, is not one this parser decodes.
+    BadExternKind(u8),
+    /// A core sort other than module is exported from a component. Such exports are not decoded.
+    UnsupportedSort(u8),
+    /// A component sort byte is unknown.
+    BadSort(u8),
+    /// A type bound byte is neither 0x00 (equal to a type) nor 0x01 (sub resource).
+    BadTypeBound(u8),
+    /// An optional field's flag byte is neither 0x00 nor 0x01.
+    BadOptionFlag(u8),
+    /// An export's descriptor names a different kind from the export itself.
+    DescKindMismatch,
+    /// Two component imports have the same name.
+    DuplicateImport,
+    /// An index is at or beyond the most entries its index space can hold.
+    BadComponentIndex(Space, u32),
 }
 
 /// A parse error, with the byte offset where it was found.
