@@ -53,6 +53,39 @@ fn diagnostics_are_in_source_order_with_locations() {
 }
 
 #[test]
+fn doc_example_config_can_deny() {
+    let undocumented = "pub fn bare() {}\n";
+    let documented = "/// Doubles.\n///\n/// ```\n/// assert_eq!(double(2), 4);\n/// ```\npub fn double(x: u8) -> u8 { x * 2 }\n";
+    let mut linter = Linter::new(default_rules());
+    let config =
+        Config::parse("# Fail the build on a missing example.\ndoc-example = deny\n").unwrap();
+    linter.configure(&config).unwrap();
+
+    let diags = linter.lint_source(undocumented).unwrap();
+    assert!(
+        diags
+            .iter()
+            .any(|d| d.rule == "doc-example" && d.severity == Severity::Deny)
+    );
+    assert!(has_errors(&diags));
+
+    let diags = linter.lint_source(documented).unwrap();
+    assert!(diags.iter().all(|d| d.rule != "doc-example"));
+}
+
+#[test]
+fn doc_example_defaults_to_warn() {
+    let linter = Linter::new(default_rules());
+    let diags = linter.lint_source("pub fn bare() {}\n").unwrap();
+    assert!(
+        diags
+            .iter()
+            .any(|d| d.rule == "doc-example" && d.severity == Severity::Warn)
+    );
+    assert!(!has_errors(&diags));
+}
+
+#[test]
 fn unparseable_source_is_reported() {
     let linter = Linter::new(default_rules());
     assert!(linter.lint_source("fn (").is_err());

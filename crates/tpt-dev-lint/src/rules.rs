@@ -3,7 +3,10 @@
 use proc_macro2::Span;
 use syn::spanned::Spanned;
 use syn::visit::{self, Visit};
-use syn::{Attribute, ExprMethodCall, ExprUnsafe, File, ItemFn, ItemMod, Macro};
+use syn::{
+    Attribute, Expr, ExprLit, ExprMethodCall, ExprUnsafe, File, Ident, ImplItem, ItemFn, ItemImpl,
+    ItemMod, Lit, Macro, Meta, Visibility,
+};
 
 use crate::{Finding, Rule, Severity};
 
@@ -184,12 +187,113 @@ impl Rule for SafetyComment {
     }
 }
 
+/// Flags a `pub` function, or a `pub` method in an inherent `impl`, whose doc comment has no
+/// fenced code block (a line starting with three backticks).
+///
+/// Restricted visibilities such as `pub(crate)` and `pub(super)` are not checked. Trait impl
+/// methods are not checked, because they take their visibility from the trait. Whether the
+/// enclosing type is itself public is not analysed.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DocExample;
+
+struct DocExampleVisitor {
+    findings: Vec<Finding>,
+}
+
+impl DocExampleVisitor {
+    fn check(&mut self, name: &Ident, attrs: &[Attribute]) {
+        if !has_fenced_example(attrs) {
+            self.findings.push(finding(
+                name.span(),
+                format!(
+                    "public function `{name}` has no example; add a fenced code block (```) to its doc comment"
+                ),
+            ));
+        }
+    }
+}
+
+/// The text of a `#[doc = "..."]` attribute, if its value is a string literal.
+/// Doc comments (`///`) become these attributes, one per line.
+fn doc_text(attr: &Attribute) -> Option<String> {
+    if !attr.path().is_ident("doc") {
+        return None;
+    }
+    match &attr.meta {
+        Meta::NameValue(nv) => match &nv.value {
+            Expr::Lit(ExprLit {
+                lit: Lit::Str(s), ..
+            }) => Some(s.value()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Whether any doc line opens a fenced code block with three backticks.
+fn has_fenced_example(attrs: &[Attribute]) -> bool {
+    attrs
+        .iter()
+        .filter_map(doc_text)
+        .any(|text| text.lines().any(|l| l.trim_start().starts_with("```")))
+}
+
+fn is_public(vis: &Visibility) -> bool {
+    matches!(vis, Visibility::Public(_))
+}
+
+impl<'ast> Visit<'ast> for DocExampleVisitor {
+    fn visit_item_mod(&mut self, m: &'ast ItemMod) {
+        if !is_test_attr(&m.attrs) {
+            visit::visit_item_mod(self, m);
+        }
+    }
+
+    fn visit_item_fn(&mut self, f: &'ast ItemFn) {
+        if !is_test_attr(&f.attrs) {
+            if is_public(&f.vis) {
+                self.check(&f.sig.ident, &f.attrs);
+            }
+            visit::visit_item_fn(self, f);
+        }
+    }
+
+    fn visit_item_impl(&mut self, i: &'ast ItemImpl) {
+        if i.trait_.is_none() {
+            for item in &i.items {
+                match item {
+                    ImplItem::Fn(m) if is_public(&m.vis) && !is_test_attr(&m.attrs) => {
+                        self.check(&m.sig.ident, &m.attrs);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        visit::visit_item_impl(self, i);
+    }
+}
+
+impl Rule for DocExample {
+    fn name(&self) -> &'static str {
+        "doc-example"
+    }
+
+    fn check(&self, file: &File, _source: &str) -> Vec<Finding> {
+        let mut v = DocExampleVisitor {
+            findings: Vec::new(),
+        };
+        v.visit_file(file);
+        v.findings
+    }
+}
+
 /// The built-in rules, each at its default severity: the two safety rules deny, and the rest warn.
 pub fn default_rules() -> Vec<(Box<dyn Rule>, Severity)> {
     vec![
         (Box::new(NoUnwrap), Severity::Warn),
         (Box::new(NoTodoMacros), Severity::Warn),
         (Box::new(SafetyComment), Severity::Deny),
+        (Box::new(DocExample), Severity::Warn),
     ]
 }
 
@@ -227,6 +331,40 @@ mod tests {
         let bad = "fn f(p: *const u8) -> u8 {\n    unsafe { *p }\n}\n";
         assert!(run(&SafetyComment, good).is_empty());
         assert_eq!(run(&SafetyComment, bad).len(), 1);
+    }
+
+    #[test]
+    fn documented_pub_fn_with_example_passes() {
+        let src = "/// Adds one.\n///\n/// ```\n/// assert_eq!(add_one(1), 2);\n/// ```\npub fn add_one(x: u8) -> u8 { x + 1 }\n";
+        assert!(run(&DocExample, src).is_empty());
+    }
+
+    #[test]
+    fn undocumented_pub_fn_is_flagged_with_location() {
+        let src = "/// Adds one, with no example.\npub fn add_one(x: u8) -> u8 { x + 1 }\n";
+        let found = run(&DocExample, src);
+        assert_eq!(found.len(), 1);
+        assert_eq!((found[0].line, found[0].column), (2, 8));
+    }
+
+    #[test]
+    fn pub_crate_and_private_fns_are_ignored() {
+        let src = "pub(crate) fn a() {}\npub(super) fn b() {}\nfn c() {}\n";
+        assert!(run(&DocExample, src).is_empty());
+    }
+
+    #[test]
+    fn inherent_pub_methods_checked_and_trait_methods_not() {
+        let src = "pub struct S;\nimpl S {\n    pub fn bare(&self) {}\n}\nimpl std::fmt::Debug for S {\n    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { Ok(()) }\n}\n";
+        let found = run(&DocExample, src);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].line, 3);
+    }
+
+    #[test]
+    fn test_code_is_skipped_for_doc_example() {
+        let src = "#[cfg(test)]\nmod tests {\n    pub fn helper() {}\n}\n";
+        assert!(run(&DocExample, src).is_empty());
     }
 
     #[test]

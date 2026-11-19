@@ -15,7 +15,7 @@ mod rules;
 use std::fmt;
 
 pub use config::{Config, ConfigError};
-pub use rules::{NoTodoMacros, NoUnwrap, SafetyComment, default_rules};
+pub use rules::{DocExample, NoTodoMacros, NoUnwrap, SafetyComment, default_rules};
 
 /// How seriously a finding is treated.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
