@@ -338,7 +338,7 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 
 - [x] Cross-crate dependency and version audit — *every path dependency uses version `0.0.0`, matching the workspace*
 - [x] Final `cargo deny check` across the whole workspace — *advisories, bans, licenses and sources all pass*
-- [ ] Confirm every crate builds on `thumbv7em-none-eabihf` and passes loom where applicable — *bare-metal build passes with CI's exclusions; loom run in progress for lock, trace and async*
+- [x] Confirm every crate builds on `thumbv7em-none-eabihf` and passes loom where applicable — *bare-metal build passes with CI's exclusions; loom passes for async (2 tests), lock (3) and trace (2, about 90 s in release)*
 - [ ] Confirm every public function documented with example or README include — *`missing_docs` is enforced by clippy `-D warnings`, and `cargo doc` passes with warnings as errors; not every item has an example*
 - [ ] Publish 0.x in dependency order (decided: `cargo-release` resolves it; layers 0, 1, 2, 3, then Phase 6 crates) — *not done: publishing needs the user's go-ahead*
 - [ ] First release via `cargo release` for all 30 crates — *not done: publishing needs the user's go-ahead*
