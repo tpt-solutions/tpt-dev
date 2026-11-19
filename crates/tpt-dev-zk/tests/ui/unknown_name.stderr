@@ -1,0 +1,5 @@
+error: #[circuit] unknown name: only parameters and earlier let bindings
+ --> tests/ui/unknown_name.rs:5:9
+  |
+5 |     x + y
+  |         ^

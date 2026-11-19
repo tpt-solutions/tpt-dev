@@ -45,7 +45,7 @@ jobs:
       # tpt-dev-contract and tpt-dev-mock-macros are proc-macro crates; tpt-dev-dep, tpt-dev-headers and tpt-dev-lint are std host tools.
       # All three run on the host only.
       - name: Build workspace for bare metal
-        run: cargo build --workspace --exclude tpt-dev-contract --exclude tpt-dev-mock-macros --exclude tpt-dev-dep --exclude tpt-dev-headers --exclude tpt-dev-lint --target thumbv7em-none-eabihf
+        run: cargo build --workspace --exclude tpt-dev-contract --exclude tpt-dev-mock-macros --exclude tpt-dev-zk-macros --exclude tpt-dev-dep --exclude tpt-dev-headers --exclude tpt-dev-lint --target thumbv7em-none-eabihf
 
   # Loom concurrency tests for Group 3 crates (async, trace, lock, mem) are
   # added once those crates have implementations. Not wired up yet.

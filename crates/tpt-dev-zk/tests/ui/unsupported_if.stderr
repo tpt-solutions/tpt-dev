@@ -1,0 +1,5 @@
+error: #[circuit] unsupported expression: use integer literals, names, parentheses, + - * and unary -
+ --> tests/ui/unsupported_if.rs:5:5
+  |
+5 |     if x > 0 { x } else { 0 }
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^

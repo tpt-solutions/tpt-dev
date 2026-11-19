@@ -30,7 +30,8 @@ assert_eq!(c.num_constraints(), 2); // the product, and the output
 
 - **Small field.** The arithmetic is modulo 2^61 - 1, so it fits in `u128`. Real proof systems use a 254-bit field such as BN254's scalar field. The `.r1cs` header records the modulus, so the file is well formed, but circom and snarkjs will not accept these circuits as BN254 circuits.
 - **Format not checked against circom.** The encoder is checked by decoding its own output, and the tests confirm that the encoded constraints hold for the encoded witness. Nothing here has been loaded by circom or snarkjs.
-- **Tracing front end, not a proc macro.** A Rust function is supported when it is written generically over `Ring`, and uses only `+`, `-` and `*`. There is no division, comparison, or branching on a wire value, because a traced circuit has no value to branch on. A proc macro that reads ordinary `fn` items is not written.
+- **Front end subset.** Two ways in. A function written generically over `Ring` is traced. A plain `i64` function marked `#[circuit]` gets a generated `<name>_circuit` that is generic over `Ring`. Both support integer literals, names, `let` bindings, parentheses, `+`, `-`, `*` and unary `-`. Division, comparisons, `if`, loops, and calls to other functions are rejected at compile time, because a traced circuit has no value to branch on.
+- **The macro needs a host build.** `tpt-dev-zk-macros` is a proc-macro crate, so CI builds it for the host only. `tpt-dev-zk` itself still builds for `thumbv7em-none-eabihf`.
 - **No proof generation.** The crate produces constraints and witnesses. Proving and verifying are left to external backends, as decided.
 - **Witness is private.** `Circuit::witness` includes private inputs. Do not send it to a verifier.
 
