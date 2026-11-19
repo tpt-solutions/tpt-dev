@@ -258,13 +258,13 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [ ] Overhead measurement showing negligible cost
 
 ### tpt-dev-bench: statistical benchmarking & CI gating
-- [ ] S
-- [ ] Measurement harness with warm-up and outlier handling
-- [ ] Statistical comparison (confidence intervals, significance tests)
-- [ ] Baseline storage format
-- [ ] CI gate: fail the PR on regression beyond threshold
-- [ ] GitHub Actions example workflow
-- [ ] `no_std` cycle-counter mode
+- [x] S — *0.1.0 publish deferred to Phase 7*
+- [x] Measurement harness with warm-up and outlier handling — *`harness::measure` (std) with warm-up and `black_box`; `trim_outliers` (Tukey)*
+- [x] Statistical comparison (confidence intervals, significance tests) — *Welch's t-test; the critical value is approximate and no confidence interval is computed*
+- [x] Baseline storage format — *plain text `name mean stddev n`, parsed and written by `Baseline`*
+- [x] CI gate: fail the PR on regression beyond threshold — *`judge` with `Policy`; a trusted regression is a failure*
+- [ ] GitHub Actions example workflow — *not written*
+- [ ] `no_std` cycle-counter mode — *not written; the core is no_std but the harness uses Instant*
 
 ---
 
