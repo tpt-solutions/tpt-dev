@@ -308,12 +308,12 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [ ] Document the supported language subset
 
 ### tpt-dev-tee: Trusted Execution Environment abstraction
-- [ ] S
-- [ ] Common TEE trait set (secure memory, attestation, secure calls)
-- [ ] ARM TrustZone backend (Cortex-M NS/S transitions)
-- [ ] Intel TDX backend
-- [ ] Mock TEE for host tests
-- [ ] Safety review of secure/non-secure boundary code
+- [x] S — *0.1.0 publish deferred to Phase 7*
+- [x] Common TEE trait set (secure memory, attestation, secure calls) — *`SecureMemory`, `Attestation`, `SecureCall`, shared `TeeError`*
+- [ ] ARM TrustZone backend (Cortex-M NS/S transitions) — *partial: `trustzone` models the NS/S partition (deny by default) and the gate (registered entries only, no nesting), tested on the host. Not done: programming the SAU/IDAU, secure gateway veneers, and any hardware test.*
+- [ ] Intel TDX backend — *not started: needs Intel's guest interface, which cannot be built or tested in this environment*
+- [x] Mock TEE for host tests — *`mock::MockTee`: enforces world isolation and service calls; its attestation tag is explicitly not a cryptographic MAC*
+- [ ] Safety review of secure/non-secure boundary code — *the README lists the review points for the modelled rules; the review of hardware boundary code waits for a backend*
 
 ### tpt-dev-compose: Wasm Component Model linker
 - [ ] S
