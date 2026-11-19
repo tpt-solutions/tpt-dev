@@ -8,11 +8,9 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 readme = "README.md"
-categories = ["no-std"]
+categories = ["development-tools"]
 
-[features]
-default = []
-std = []
+# A host tool: it reads files, so it is std and excluded from the bare-metal build.
 
 [lints]
 workspace = true
