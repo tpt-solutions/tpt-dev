@@ -15,8 +15,8 @@ mod term;
 
 pub use rational::Rational;
 pub use smt::{ScriptError, Session};
-pub use solver::{Solver, Status};
-pub use term::{Arena, Formula, Linear, Var};
+pub use solver::{Budget, Farkas, Solver, Status, check_farkas};
+pub use term::{Arena, FixedArena, Formula, Linear, Var};
 
 /// The solver could not decide the problem. An intermediate value did not
 /// fit in `i128`. The solver never guesses, so it reports this instead of a

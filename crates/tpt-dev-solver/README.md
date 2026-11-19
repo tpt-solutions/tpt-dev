@@ -5,9 +5,17 @@ Pure-Rust solver for quantifier-free linear real arithmetic (QF_LRA). It replace
 - **Exact arithmetic:** rationals on checked `i128`. Overflow returns `Unknown`, never a wrong answer.
 - **DPLL(T):** a CDCL SAT core drives the Boolean structure. A general simplex with delta-rationals (for strict bounds) checks the linear part.
 - **Models:** every `Sat` answer comes with a model. The randomized test suite checks each model against the formula.
+- **Incremental:** `push` and `pop` keep the encoding, the learned clauses and the simplex tableau. Assertions are passed as SAT assumptions, so `pop` retracts them without invalidating anything learned.
 - **Unsat cores:** `unsat_core` returns a minimal set of assertions that is still unsatisfiable.
+- **Farkas certificates:** `unsat_certificate` returns a checkable proof for conjunctions of linear literals. `check_farkas` verifies it without the solver. The format is documented on `Farkas`.
+- **Budgets:** `Budget` caps formula nodes, clauses and simplex pivots. A check that reaches a cap returns `Unknown`.
+- **Fixed-capacity arena:** `FixedArena` stores formulas inline, with no heap allocation in the store.
 - **SMT-LIB subset:** `Session` runs scripts with `declare-fun`, `assert`, `check-sat`, `get-model`, `push`, `pop` and `exit`.
 - **`no_std` with `alloc`:** no dependencies. Needs a global allocator on bare metal.
+
+## Benchmarks
+
+`cargo run -p tpt-dev-solver --release --example bench` times random QF_LRA instances. The simplex tableau is kept across theory checks, which cut the time on the largest disjunctive instance about fivefold.
 
 ## Example
 
@@ -28,9 +36,11 @@ assert!(out.starts_with("sat\n"));
 
 ## Limits
 
-- **Assertions are re-solved on each check.** `push` and `pop` change the assertion set, and each `check` starts a fresh search. That is correct but slow for long incremental sessions.
-- **Theory checks run only on full assignments.** There is no theory propagation, and the simplex is rebuilt for each check.
-- **No restarts and no clause deletion.**
+- **Theory checks run only on full assignments.** There is no theory propagation. Checking partial assignments was tried and was slower.
+- **No restarts and no clause deletion.** Learned clauses accumulate for the life of a solver, so a long session should start a new `Solver` (or set `Budget::max_clauses`).
+- **Memory is not reclaimed by `pop`.** Encodings and learned clauses stay. `Budget` limits them.
+- **Farkas certificates cover only conjunctions of linear literals.** A problem with `or` or a compound `not` gets no certificate. A full DPLL(T) proof is not produced.
+- **The `FixedArena` store is allocation-free, but the search is not.** Solving uses `alloc` for its working state.
 - **Unsat cores are deletion-based.** They take one solver call per assertion.
 - **Only real variables and linear terms.** Nonlinear products, `ite` and `distinct` are rejected.
 - **Not yet cross-checked against the SMT-LIB corpus.** Testing uses a randomized oracle (DNF plus Fourier-Motzkin elimination) and unit tests.

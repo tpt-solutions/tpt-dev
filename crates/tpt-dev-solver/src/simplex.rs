@@ -79,8 +79,10 @@ pub(crate) struct Bound {
 pub(crate) enum Check {
     /// All bounds hold. Values can be read with [`Simplex::value`].
     Sat,
-    /// The bounds conflict. The list holds the reasons of the bounds involved.
-    Conflict(Vec<u32>),
+    /// The bounds conflict. Each entry is the reason of a bound involved and
+    /// its Farkas coefficient. The coefficients are positive, and the
+    /// weighted bounds sum to a contradiction (see [`crate::Farkas`]).
+    Conflict(Vec<(u32, Rational)>),
 }
 
 /// A simplex tableau over `n` original variables and `m` slack variables.
@@ -97,11 +99,19 @@ pub(crate) struct Simplex {
     value: Vec<DRat>,
     lower: Vec<Option<Bound>>,
     upper: Vec<Option<Bound>>,
+    /// Pivots made so far, and the most this instance may make.
+    pub(crate) pivots: u64,
+    pivot_limit: u64,
 }
 
 impl Simplex {
-    /// Builds the tableau. `rows[j]` gives slack `n + j` as a combination of originals.
-    pub(crate) fn new(n: usize, rows: &[Vec<(usize, Rational)>]) -> Result<Self, Unknown> {
+    /// Builds the tableau. `rows[j]` gives slack `n + j` as a combination of
+    /// originals. Pivoting past `pivot_limit` returns `Unknown`.
+    pub(crate) fn new(
+        n: usize,
+        rows: &[Vec<(usize, Rational)>],
+        pivot_limit: u64,
+    ) -> Result<Self, Unknown> {
         let m = rows.len();
         let n_total = n + m;
         let mut tableau = vec![vec![Rational::ZERO; n_total]; m];
@@ -122,7 +132,22 @@ impl Simplex {
             value: vec![DRat::ZERO; n_total],
             lower: vec![None; n_total],
             upper: vec![None; n_total],
+            pivots: 0,
+            pivot_limit,
         })
+    }
+
+    /// Removes every bound. The tableau and the current values are kept, so
+    /// the next check starts from the basis that the last one ended with.
+    pub(crate) fn reset_bounds(&mut self) {
+        self.lower.iter_mut().for_each(|b| *b = None);
+        self.upper.iter_mut().for_each(|b| *b = None);
+    }
+
+    /// Starts a new pivot budget: no pivots counted, and at most `limit` allowed.
+    pub(crate) fn start_budget(&mut self, limit: u64) {
+        self.pivots = 0;
+        self.pivot_limit = limit;
     }
 
     /// Asserts `x <= bound`.
@@ -138,7 +163,10 @@ impl Simplex {
         if let Some(lo) = self.lower[x]
             && bound < lo.value
         {
-            return Ok(Check::Conflict(vec![reason, lo.reason]));
+            return Ok(Check::Conflict(vec![
+                (reason, Rational::ONE),
+                (lo.reason, Rational::ONE),
+            ]));
         }
         self.upper[x] = Some(Bound {
             value: bound,
@@ -163,7 +191,10 @@ impl Simplex {
         if let Some(hi) = self.upper[x]
             && bound > hi.value
         {
-            return Ok(Check::Conflict(vec![reason, hi.reason]));
+            return Ok(Check::Conflict(vec![
+                (reason, Rational::ONE),
+                (hi.reason, Rational::ONE),
+            ]));
         }
         self.lower[x] = Some(Bound {
             value: bound,
@@ -279,6 +310,10 @@ impl Simplex {
 
     /// Exchanges basic `basic[r]` with nonbasic `k` and rewrites the tableau.
     fn pivot(&mut self, r: usize, k: usize) -> Result<(), Unknown> {
+        self.pivots += 1;
+        if self.pivots > self.pivot_limit {
+            return Err(Unknown);
+        }
         let b = self.basic[r];
         let inv = Rational::ONE
             .checked_div(self.tableau[r][k])
@@ -325,14 +360,20 @@ impl Simplex {
 
     /// Reasons for the infeasible row `r`: its violated bound, and the bounds
     /// that stop the nonbasic variables from moving.
-    fn explain(&self, r: usize, increase: bool) -> Vec<u32> {
+    ///
+    /// The Farkas coefficients are 1 for the violated bound of `b`, and `|c|`
+    /// for the blocking bound of each nonbasic `k` with tableau entry `c`.
+    /// Writing `b = sum c_k x_k`, these weighted bounds cancel the variables
+    /// and leave a contradiction.
+    fn explain(&self, r: usize, increase: bool) -> Vec<(u32, Rational)> {
         let b = self.basic[r];
         let mut reasons = Vec::new();
-        if increase {
-            reasons.extend(self.lower[b].map(|x| x.reason));
+        let own = if increase {
+            self.lower[b]
         } else {
-            reasons.extend(self.upper[b].map(|x| x.reason));
-        }
+            self.upper[b]
+        };
+        reasons.extend(own.map(|x| (x.reason, Rational::ONE)));
         for k in 0..self.n_total {
             let c = self.tableau[r][k];
             if c.is_zero() || self.row_of[k].is_some() {
@@ -345,7 +386,12 @@ impl Simplex {
             } else {
                 self.lower[k]
             };
-            reasons.extend(bound.map(|x| x.reason));
+            let weight = if c.is_negative() {
+                c.checked_neg().unwrap_or(c)
+            } else {
+                c
+            };
+            reasons.extend(bound.map(|x| (x.reason, weight)));
         }
         reasons
     }
@@ -407,7 +453,7 @@ mod tests {
     fn feasible_bounds_are_met() {
         // s = x + y, with x <= 2, y <= 3, s >= 4.
         let rows = vec![vec![(0, r(1)), (1, r(1))]];
-        let mut s = Simplex::new(2, &rows).unwrap();
+        let mut s = Simplex::new(2, &rows, u64::MAX).unwrap();
         assert_eq!(s.assert_upper(0, le(2), 1).unwrap(), Check::Sat);
         assert_eq!(s.assert_upper(1, le(3), 2).unwrap(), Check::Sat);
         assert_eq!(s.assert_lower(2, le(4), 3).unwrap(), Check::Sat);
@@ -422,12 +468,13 @@ mod tests {
     fn conflicting_bounds_explain_themselves() {
         // s = x + y, with x <= 1, y <= 1, s >= 5: reasons 1, 2 and 3 all matter.
         let rows = vec![vec![(0, r(1)), (1, r(1))]];
-        let mut s = Simplex::new(2, &rows).unwrap();
+        let mut s = Simplex::new(2, &rows, u64::MAX).unwrap();
         s.assert_upper(0, le(1), 1).unwrap();
         s.assert_upper(1, le(1), 2).unwrap();
         s.assert_lower(2, le(5), 3).unwrap();
         match s.check().unwrap() {
-            Check::Conflict(mut reasons) => {
+            Check::Conflict(reasons) => {
+                let mut reasons: Vec<u32> = reasons.into_iter().map(|(r, _)| r).collect();
                 reasons.sort_unstable();
                 reasons.dedup();
                 assert_eq!(reasons, vec![1, 2, 3]);
@@ -440,7 +487,7 @@ mod tests {
     fn strict_bound_uses_delta() {
         // x > 0 and x < 1: needs a positive delta.
         let rows: Vec<Vec<(usize, Rational)>> = Vec::new();
-        let mut s = Simplex::new(1, &rows).unwrap();
+        let mut s = Simplex::new(1, &rows, u64::MAX).unwrap();
         assert_eq!(
             s.assert_lower(0, DRat::new(r(0), r(1)), 1).unwrap(),
             Check::Sat
@@ -458,7 +505,7 @@ mod tests {
     fn strict_conflict_detected() {
         // x < 1 and x >= 1 conflict.
         let rows: Vec<Vec<(usize, Rational)>> = Vec::new();
-        let mut s = Simplex::new(1, &rows).unwrap();
+        let mut s = Simplex::new(1, &rows, u64::MAX).unwrap();
         s.assert_upper(0, DRat::new(r(1), r(-1)), 1).unwrap();
         let out = s.assert_lower(0, le(1), 2).unwrap();
         assert!(matches!(out, Check::Conflict(_)));

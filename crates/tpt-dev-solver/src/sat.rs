@@ -43,10 +43,12 @@ pub(crate) enum SatResult {
 /// The theory's answer on a full Boolean assignment.
 pub(crate) type TheoryCheck<'a> = &'a mut dyn FnMut(&[i8]) -> Result<Option<Vec<Lit>>, Unknown>;
 
+/// A CDCL solver that keeps its clause database and learned clauses between
+/// calls to [`Sat::solve`]. Clauses added between calls are simplified against
+/// the level-0 assignment. Assumptions are decided first and are not clauses,
+/// so anything learned while they were assumed stays valid after they are dropped.
 pub(crate) struct Sat {
     n_vars: usize,
-    /// Clauses from the caller. Preprocessed at the start of `solve`.
-    input: Vec<Vec<Lit>>,
     clauses: Vec<Vec<Lit>>,
     watches: Vec<Vec<usize>>,
     /// Per variable: 0 unassigned, 1 true, -1 false.
@@ -58,32 +60,78 @@ pub(crate) struct Sat {
     trail: Vec<Lit>,
     trail_lim: Vec<usize>,
     qhead: usize,
-    /// Set when the theory's clause shows the problem is unsatisfiable.
+    /// Set when the clauses (with no assumptions) are unsatisfiable. Permanent.
     theory_unsat: bool,
+    /// Clause count above which `solve` returns `Unknown`.
+    max_clauses: usize,
 }
 
 impl Sat {
-    pub(crate) fn new(n_vars: usize) -> Self {
+    /// An empty solver with no variables.
+    pub(crate) const fn new() -> Self {
         Self {
-            n_vars,
-            input: Vec::new(),
+            n_vars: 0,
             clauses: Vec::new(),
-            watches: vec![Vec::new(); 2 * n_vars],
-            assign: vec![0; n_vars],
-            level: vec![0; n_vars],
-            reason: vec![None; n_vars],
-            activity: vec![0; n_vars],
+            watches: Vec::new(),
+            assign: Vec::new(),
+            level: Vec::new(),
+            reason: Vec::new(),
+            activity: Vec::new(),
             bump: 1,
             trail: Vec::new(),
             trail_lim: Vec::new(),
             qhead: 0,
             theory_unsat: false,
+            max_clauses: usize::MAX,
         }
     }
 
-    /// Adds an input clause. Clauses are simplified when `solve` starts.
-    pub(crate) fn add_clause(&mut self, lits: Vec<Lit>) {
-        self.input.push(lits);
+    /// Makes variables `0..n` available.
+    pub(crate) fn ensure_vars(&mut self, n: usize) {
+        if n <= self.n_vars {
+            return;
+        }
+        self.n_vars = n;
+        self.watches.resize_with(2 * n, Vec::new);
+        self.assign.resize(n, 0);
+        self.level.resize(n, 0);
+        self.reason.resize(n, None);
+        self.activity.resize(n, 0);
+    }
+
+    /// Sets the clause limit. Going over it makes `solve` return `Unknown`.
+    pub(crate) fn set_max_clauses(&mut self, max: usize) {
+        self.max_clauses = max;
+    }
+
+    /// Adds a clause. Backtracks to level 0 first, and simplifies the clause
+    /// against the level-0 assignment.
+    pub(crate) fn add_clause(&mut self, mut lits: Vec<Lit>) {
+        self.backtrack(0);
+        if self.theory_unsat {
+            return;
+        }
+        lits.sort_unstable_by_key(|l| l.0);
+        lits.dedup();
+        // A clause with both x and not x is always true.
+        if lits.windows(2).any(|w| w[0].negate() == w[1]) {
+            return;
+        }
+        let mut kept = Vec::with_capacity(lits.len());
+        for &l in &lits {
+            match self.value(l) {
+                1 => return,
+                -1 => {}
+                _ => kept.push(l),
+            }
+        }
+        match kept.len() {
+            0 => self.theory_unsat = true,
+            1 => self.enqueue(kept[0], None),
+            _ => {
+                self.attach(kept);
+            }
+        }
     }
 
     fn value(&self, lit: Lit) -> i8 {
@@ -103,21 +151,54 @@ impl Sat {
         self.trail.push(lit);
     }
 
-    /// Solves the clauses. `theory` is called on each full Boolean assignment
-    /// (one value per variable: 1, -1), and returns a clause to learn, or `None` if the assignment is consistent.
-    pub(crate) fn solve(&mut self, theory: TheoryCheck<'_>) -> Result<SatResult, Unknown> {
-        if !self.add_input()? {
+    /// Decides whether the clauses and `assumptions` (all true) are satisfiable.
+    ///
+    /// `theory` is called on each full Boolean assignment (one value per
+    /// variable: 1, -1), and returns a clause to learn, or `None` if the
+    /// assignment is consistent. Clauses learned here stay in the database.
+    ///
+    /// `Unsat` may mean the assumptions alone are inconsistent with the
+    /// clauses. Only an `Unsat` with no assumptions involved is permanent.
+    pub(crate) fn solve(
+        &mut self,
+        assumptions: &[Lit],
+        theory: TheoryCheck<'_>,
+    ) -> Result<SatResult, Unknown> {
+        if self.theory_unsat {
             return Ok(SatResult::Unsat);
         }
+        self.backtrack(0);
         if self.propagate().is_some() {
+            self.theory_unsat = true;
             return Ok(SatResult::Unsat);
         }
         loop {
+            if self.clauses.len() > self.max_clauses {
+                return Err(Unknown);
+            }
             if let Some(confl) = self.propagate() {
                 if self.decision_level() == 0 {
+                    self.theory_unsat = true;
                     return Ok(SatResult::Unsat);
                 }
                 self.resolve_conflict(confl);
+                continue;
+            }
+            let level = self.decision_level();
+            if level < assumptions.len() {
+                let a = assumptions[level];
+                match self.value(a) {
+                    // Already true: an empty level keeps the level/assumption correspondence.
+                    1 => self.trail_lim.push(self.trail.len()),
+                    -1 => {
+                        self.backtrack(0);
+                        return Ok(SatResult::Unsat);
+                    }
+                    _ => {
+                        self.trail_lim.push(self.trail.len());
+                        self.enqueue(a, None);
+                    }
+                }
                 continue;
             }
             if let Some(var) = self.pick_branch() {
@@ -139,40 +220,6 @@ impl Sat {
                 },
             }
         }
-    }
-
-    /// Simplifies and loads the input clauses at level 0. Returns `false` if they are unsatisfiable.
-    fn add_input(&mut self) -> Result<bool, Unknown> {
-        let input = core::mem::take(&mut self.input);
-        for mut lits in input {
-            lits.sort_unstable_by_key(|l| l.0);
-            lits.dedup();
-            // A clause with both x and not x is always true.
-            if lits.windows(2).any(|w| w[0].negate() == w[1]) {
-                continue;
-            }
-            // Drop literals that are already false, and skip satisfied clauses.
-            let mut kept = Vec::with_capacity(lits.len());
-            let mut satisfied = false;
-            for &l in &lits {
-                match self.value(l) {
-                    1 => satisfied = true,
-                    -1 => {}
-                    _ => kept.push(l),
-                }
-            }
-            if satisfied {
-                continue;
-            }
-            match kept.len() {
-                0 => return Ok(false),
-                1 => self.enqueue(kept[0], None),
-                _ => {
-                    self.attach(kept);
-                }
-            }
-        }
-        Ok(true)
     }
 
     /// Adds a clause with at least two literals to the database, watching its first two.
@@ -248,8 +295,8 @@ impl Sat {
         let mut clause = confl;
         let mut resolved: Option<Lit> = None;
         loop {
-            let lits = self.clauses[clause].clone();
-            for q in lits {
+            for k in 0..self.clauses[clause].len() {
+                let q = self.clauses[clause][k];
                 if resolved.is_some_and(|p| p.var() == q.var()) {
                     continue;
                 }
@@ -404,6 +451,12 @@ impl Sat {
 mod tests {
     use super::*;
 
+    fn sat_with(n: usize) -> Sat {
+        let mut s = Sat::new();
+        s.ensure_vars(n);
+        s
+    }
+
     fn no_theory(_: &[i8]) -> Result<Option<Vec<Lit>>, Unknown> {
         Ok(None)
     }
@@ -415,30 +468,30 @@ mod tests {
     #[test]
     fn satisfiable_instance() {
         // (a or b) and (not a or b) and (not b or a)  => a = b = true
-        let mut s = Sat::new(2);
+        let mut s = sat_with(2);
         s.add_clause(vec![lit(0, false), lit(1, false)]);
         s.add_clause(vec![lit(0, true), lit(1, false)]);
         s.add_clause(vec![lit(1, true), lit(0, false)]);
         let mut th = no_theory;
-        assert_eq!(s.solve(&mut th).unwrap(), SatResult::Sat);
+        assert_eq!(s.solve(&[], &mut th).unwrap(), SatResult::Sat);
         assert_eq!(s.assign, vec![1, 1]);
     }
 
     #[test]
     fn unsatisfiable_instance() {
         // All four clauses over two variables: unsat.
-        let mut s = Sat::new(2);
+        let mut s = sat_with(2);
         for &(a, b) in &[(false, false), (false, true), (true, false), (true, true)] {
             s.add_clause(vec![lit(0, a), lit(1, b)]);
         }
         let mut th = no_theory;
-        assert_eq!(s.solve(&mut th).unwrap(), SatResult::Unsat);
+        assert_eq!(s.solve(&[], &mut th).unwrap(), SatResult::Unsat);
     }
 
     #[test]
     fn pigeonhole_three_into_two_is_unsat() {
         // p(i,h): pigeon i in hole h. Variables 0..6: p(i,h) = 2*i + h.
-        let mut s = Sat::new(6);
+        let mut s = sat_with(6);
         for i in 0..3 {
             s.add_clause(vec![lit(2 * i, false), lit(2 * i + 1, false)]);
         }
@@ -450,13 +503,13 @@ mod tests {
             }
         }
         let mut th = no_theory;
-        assert_eq!(s.solve(&mut th).unwrap(), SatResult::Unsat);
+        assert_eq!(s.solve(&[], &mut th).unwrap(), SatResult::Unsat);
     }
 
     #[test]
     fn theory_clause_is_learned() {
         // Boolean part is free. The theory forbids the assignment (a=1, b=1).
-        let mut s = Sat::new(2);
+        let mut s = sat_with(2);
         let mut calls = 0;
         let mut th = |a: &[i8]| {
             calls += 1;
@@ -466,7 +519,7 @@ mod tests {
                 Ok(None)
             }
         };
-        assert_eq!(s.solve(&mut th).unwrap(), SatResult::Sat);
+        assert_eq!(s.solve(&[], &mut th).unwrap(), SatResult::Sat);
         assert!(calls >= 1);
     }
 }
