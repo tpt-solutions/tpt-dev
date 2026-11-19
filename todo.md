@@ -290,12 +290,12 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [x] S — *0.1.0 publish deferred to Phase 7*
 - [x] ML-KEM (FIPS 203): 512/768/1024 — *`kem.rs`, with Keccak in `keccak.rs` and the ring and samplers in `poly.rs`*
 - [x] ML-DSA (FIPS 204): 44/65/87 — *`dsa.rs`: NTT, rounding, sampling, sign and verify. Hedged and deterministic signing. Hashed (HashML-DSA) variants are not implemented.*
-- [ ] Constant-time implementation, with verification (e.g. dudect-style tests) — *partial: no secret-dependent branches, and implicit rejection uses masks; no timing test yet*
+- [ ] Constant-time implementation, with verification (e.g. dudect-style tests) — *partial: ML-KEM decapsulation shows no leak (|t| at most 1.84, host, `examples/timing.rs`). ML-DSA signing does leak with the key (|t| about 40 to 56 for 44 and 65); fixing that needs a fixed-work signing loop, not done.*
 - [x] NIST KAT vectors pass — *first 3 records per set in `tests/fixtures`; all 3,000 records of the full NIST files pass (`TPT_KAT_DIR`, ignored test)*
 - [ ] Zeroisation of secrets — *best effort: keys and secrets are overwritten on drop with `black_box`; copies made by the caller are not tracked*
 - [x] Bring-your-own-RNG interface (no_std) — *`Rng` trait; `keygen` and `encapsulate` take it*
 - [ ] Security review and a clear "not independently audited" notice — *notice written in the README; no independent review*
-- [ ] Performance benchmarks on host and Cortex-M — *not done*
+- [x] Performance benchmarks on host and Cortex-M — *host only (`examples/timing.rs`): keygen, encaps, decaps, sign and verify at all levels. Cortex-M not measured.*
 
 ### tpt-dev-zk: Rust-to-zero-knowledge circuit transpiler
 - [x] S — *0.1.0 publish deferred to Phase 7*

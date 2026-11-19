@@ -55,10 +55,14 @@ assert_eq!(sent.as_bytes(), received.as_bytes());
 ## Limits and review notes
 
 - **Randomness is the caller's job.** The crate has no entropy source. A weak `Rng` breaks both schemes.
-- **Constant time is argued, not measured.** The code avoids branches on secret data, and the ML-KEM implicit-rejection step uses masks. The field reduction uses `%` by a constant. Compilers turn that into multiplication on common targets, but this has not been checked on the device. A dudect-style timing test is still to be written. ML-DSA's rejection loop is described above.
+- **Timing, measured on the host only.** `cargo run --release -p tpt-dev-pqc --example timing` runs a dudect-style check (Welch's t-test, |t| above 4.5 suggests leakage) and prints benchmarks. A run on this machine gave:
+  - **ML-KEM decapsulation, valid vs invalid ciphertext:** |t| of 1.84 or less at all three levels, so no leak was detected. Implicit rejection does the same work either way.
+  - **ML-DSA signing, one key vs another:** |t| of about 40 to 56 for ML-DSA-44 and -65, and about 1.5 for ML-DSA-87. **This is a real leak.** Signing time depends on the secret key, most likely through the number of rejection-sampling attempts. The README's earlier warning about this is confirmed. Fixing it needs a different signing loop, such as a fixed number of attempts with dummy work, and that is not done.
+  - The field reduction uses `%` by a constant. Compilers turn that into multiplication on common targets, but the device has not been checked.
+  - Host timings vary between runs. The ML-DSA figures moved between about 40 and 56 in repeated runs, though all were large.
+- **Benchmarks (host, release, one run):** ML-KEM-512/768/1024 decapsulation 69, 120 and 156 µs. ML-DSA-44/65/87 signing 1.6, 1.6 and 1.8 ms, and verification 0.21, 0.33 and 0.52 ms. Cortex-M numbers are not measured.
 - **Zeroisation is best effort.** Secret buffers are overwritten on drop, using `core::hint::black_box` to stop the compiler discarding the writes. The crate cannot guarantee that copies made by the caller or by the optimiser are gone.
 - **Heap use.** Internal vectors of polynomials use `alloc`. Keys, signatures and ciphertexts are `Vec<u8>`, so the crate needs an allocator.
-- **No benchmarks yet.** Performance on the host and on Cortex-M is still to be measured.
 
 ## License
 
