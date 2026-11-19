@@ -24,3 +24,5 @@ flamegraph.svg
 
 # Library workspace: Cargo.lock is not committed.
 Cargo.lock
+# ...except the Cargo.lock fixture that tpt-dev-dep's tests read.
+!crates/tpt-dev-dep/tests/fixtures/Cargo.lock
