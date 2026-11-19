@@ -1,0 +1,9 @@
+tpt-dev-dep MIT
+tpt-dev-headers MIT
+tpt-dev-mem MIT
+tpt-dev-sim MIT
+tpt-dev-solver MIT
+proc-macro2 MIT OR Apache-2.0
+quote MIT OR Apache-2.0
+syn MIT OR Apache-2.0
+unicode-ident MIT AND Unicode-3.0

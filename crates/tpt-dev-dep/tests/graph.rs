@@ -2,7 +2,7 @@
 
 #![allow(clippy::unwrap_used, clippy::panic)]
 
-use tpt_dev_dep::{Policy, analyse, parse_lock};
+use tpt_dev_dep::{Policy, Scope, analyse, parse_lock};
 
 const CYCLE3: &str = r#"
 [[package]]
@@ -43,7 +43,7 @@ fn policy() -> Policy {
 fn finds_a_three_package_cycle_and_nothing_else() {
     let g = parse_lock(CYCLE3).unwrap();
     assert_eq!(g.packages.len(), 5);
-    let r = analyse(&g, &[], &policy());
+    let r = analyse(&g, &[], &policy(), Scope::default());
     assert_eq!(
         r.cycles,
         vec![vec!["a".to_string(), "b".into(), "c".into()]]
@@ -56,7 +56,7 @@ fn versioned_dependency_resolves_to_one_version() {
     let c = g.resolve("c").unwrap();
     let d2 = g.resolve("d 2.0.0").unwrap();
     assert_eq!(g.packages[d2].version, "2.0.0");
-    assert!(g.edges()[c].contains(&d2));
+    assert!(g.edges(Scope::default())[c].contains(&d2));
 }
 
 #[test]
@@ -66,7 +66,7 @@ fn missing_and_disallowed_licenses_are_violations() {
         ("a".to_string(), "MIT".to_string()),
         ("b".to_string(), "GPL-3.0-only".to_string()),
     ];
-    let r = analyse(&g, &licenses, &policy());
+    let r = analyse(&g, &licenses, &policy(), Scope::default());
     assert!(
         r.license_violations
             .contains(&("b".into(), "GPL-3.0-only".into()))
@@ -81,7 +81,7 @@ fn missing_and_disallowed_licenses_are_violations() {
 #[test]
 fn transitive_counts_follow_edges() {
     let g = parse_lock(CYCLE3).unwrap();
-    let r = analyse(&g, &[], &policy());
+    let r = analyse(&g, &[], &policy(), Scope::default());
     // From `a`, reaching b, c, a (itself, excluded) and d 2.0.0 gives 3.
     let a = r.transitive.iter().find(|(n, _)| n == "a").unwrap();
     assert_eq!(a.1, 3);
@@ -96,6 +96,6 @@ fn the_workspace_lock_file_parses_and_has_no_cycles() {
     };
     let g = parse_lock(&text).unwrap();
     assert!(g.packages.len() > 10, "expected a populated lock file");
-    let r = analyse(&g, &[], &policy());
+    let r = analyse(&g, &[], &policy(), Scope::default());
     assert!(r.cycles.is_empty(), "unexpected cycles: {:?}", r.cycles);
 }

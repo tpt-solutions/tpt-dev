@@ -1,7 +1,7 @@
 //! The analysis: cycles, license problems, and transitive dependency counts.
 
 use crate::license::Policy;
-use crate::lock::Graph;
+use crate::lock::{Graph, Scope};
 
 /// Everything the analysis found.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
@@ -22,22 +22,28 @@ impl Report {
     }
 }
 
-/// Analyses `graph`. `licenses` maps package names to license expressions.
+/// Analyses `graph`, following the edge kinds in `scope`. `licenses` maps package
+/// names to license expressions.
 ///
 /// ```
-/// use tpt_dev_dep::{Policy, analyse, parse_lock};
+/// use tpt_dev_dep::{Policy, Scope, analyse, parse_lock};
 ///
 /// let g = parse_lock(
 ///     "[[package]]\nname = \"a\"\nversion = \"1.0.0\"\ndependencies = [\"b\"]\n\n\
 ///      [[package]]\nname = \"b\"\nversion = \"1.0.0\"\ndependencies = [\"a\"]\n",
 /// ).unwrap();
 /// let policy = Policy { allow: vec!["MIT".into()] };
-/// let r = analyse(&g, &[("a".into(), "MIT".into()), ("b".into(), "MIT".into())], &policy);
+/// let r = analyse(&g, &[("a".into(), "MIT".into()), ("b".into(), "MIT".into())], &policy, Scope::default());
 /// assert_eq!(r.cycles.len(), 1);
 /// assert!(!r.is_clean());
 /// ```
-pub fn analyse(graph: &Graph, licenses: &[(String, String)], policy: &Policy) -> Report {
-    let edges = graph.edges();
+pub fn analyse(
+    graph: &Graph,
+    licenses: &[(String, String)],
+    policy: &Policy,
+    scope: Scope,
+) -> Report {
+    let edges = graph.edges(scope);
     let cycles = cycles(graph, &edges);
 
     let mut license_violations = Vec::new();

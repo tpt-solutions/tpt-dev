@@ -1,70 +1,52 @@
-//! `tpt-dev-dep`: analyse a Cargo.lock file.
+//! `tpt-dev-dep`: analyse a Cargo.lock file or `cargo metadata` output.
 //!
-//! Usage: `tpt-dev-dep <Cargo.lock> [licenses.txt] [--allow ID]...`
+//! Usage:
+//!
+//! ```text
+//! tpt-dev-dep <Cargo.lock> [licenses.txt] [--allow ID]...
+//! tpt-dev-dep --metadata <metadata.json> [licenses.txt] [--allow ID]...
+//!             [--include-dev] [--include-build]
+//! ```
 //!
 //! `licenses.txt` has one `name license-expression` pair per line. The exit
 //! status is 1 if there is a cycle or a license violation, and 2 on a usage error.
+//! Dev and build edges come only from `--metadata`, and are followed only with
+//! `--include-dev` or `--include-build`.
 
 use std::process::ExitCode;
 
-use tpt_dev_dep::{Policy, analyse, parse_lock};
+use tpt_dev_dep::{Graph, Policy, Scope, analyse, parse_lock, parse_metadata};
+
+const USAGE: &str = "usage: tpt-dev-dep <Cargo.lock> [licenses.txt] [--allow ID]...\n       \
+                     tpt-dev-dep --metadata <metadata.json> [licenses.txt] [--allow ID]... \
+                     [--include-dev] [--include-build]";
+
+/// What the command line asked for.
+#[derive(Default)]
+struct Args {
+    lock_path: Option<String>,
+    metadata_path: Option<String>,
+    licenses_path: Option<String>,
+    allow: Vec<String>,
+    scope: Scope,
+}
 
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let mut lock_path = None;
-    let mut licenses_path = None;
-    let mut allow = Vec::new();
-    let mut i = 0;
-    while i < args.len() {
-        match args[i].as_str() {
-            "--allow" => match args.get(i + 1) {
-                Some(id) => {
-                    allow.push(id.clone());
-                    i += 1;
-                }
-                None => return usage("--allow needs a license identifier"),
-            },
-            other if lock_path.is_none() => lock_path = Some(other.to_string()),
-            other if licenses_path.is_none() => licenses_path = Some(other.to_string()),
-            _ => return usage("too many arguments"),
-        }
-        i += 1;
-    }
-    let Some(lock_path) = lock_path else {
-        return usage("missing Cargo.lock path");
-    };
-    let text = match std::fs::read_to_string(&lock_path) {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!("cannot read {lock_path}: {e}");
-            return ExitCode::from(2);
-        }
-    };
-    let graph = match parse_lock(&text) {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("{lock_path}: {e}");
-            return ExitCode::from(2);
-        }
-    };
-    let licenses: Vec<(String, String)> = match licenses_path {
-        None => Vec::new(),
-        Some(path) => match std::fs::read_to_string(&path) {
-            Ok(t) => t
-                .lines()
-                .filter_map(|l| {
-                    let mut parts = l.trim().splitn(2, char::is_whitespace);
-                    Some((parts.next()?.to_string(), parts.next()?.trim().to_string()))
-                })
-                .collect(),
-            Err(e) => {
-                eprintln!("cannot read {path}: {e}");
-                return ExitCode::from(2);
-            }
-        },
+    let args = match parse_args(std::env::args().skip(1)) {
+        Ok(a) => a,
+        Err(msg) => return usage(&msg),
     };
 
-    let report = analyse(&graph, &licenses, &Policy { allow });
+    let graph = match load_graph(&args) {
+        Ok(g) => g,
+        Err(code) => return code,
+    };
+    let licenses = match read_licenses(args.licenses_path.as_deref()) {
+        Ok(l) => l,
+        Err(code) => return code,
+    };
+
+    let report = analyse(&graph, &licenses, &Policy { allow: args.allow }, args.scope);
     for cycle in &report.cycles {
         println!("cycle: {}", cycle.join(" -> "));
     }
@@ -83,8 +65,90 @@ fn main() -> ExitCode {
     }
 }
 
+fn parse_args(raw: impl Iterator<Item = String>) -> Result<Args, String> {
+    let mut args = Args::default();
+    let mut positional = Vec::new();
+    let mut raw = raw;
+    while let Some(arg) = raw.next() {
+        match arg.as_str() {
+            "--allow" => match raw.next() {
+                Some(id) => args.allow.push(id),
+                None => return Err(String::from("--allow needs a license identifier")),
+            },
+            "--metadata" => match raw.next() {
+                Some(path) => args.metadata_path = Some(path),
+                None => return Err(String::from("--metadata needs a file path")),
+            },
+            "--include-dev" => args.scope.dev = true,
+            "--include-build" => args.scope.build = true,
+            other if other.starts_with("--") => {
+                return Err(format!("unknown option {other}"));
+            }
+            _ => positional.push(arg),
+        }
+    }
+    let mut positional = positional.into_iter();
+    if args.metadata_path.is_some() {
+        args.licenses_path = positional.next();
+    } else {
+        args.lock_path = positional.next();
+        args.licenses_path = positional.next();
+    }
+    if positional.next().is_some() {
+        return Err(String::from("too many arguments"));
+    }
+    if args.metadata_path.is_none() && args.lock_path.is_none() {
+        return Err(String::from("missing Cargo.lock path"));
+    }
+    if args.metadata_path.is_some() && args.lock_path.is_some() {
+        return Err(String::from(
+            "give a Cargo.lock path or --metadata, not both",
+        ));
+    }
+    Ok(args)
+}
+
+/// Reads and parses the graph source the arguments name. On failure, prints
+/// the reason and returns the exit code.
+fn load_graph(args: &Args) -> Result<Graph, ExitCode> {
+    if let Some(path) = &args.metadata_path {
+        let text = read_file(path)?;
+        return parse_metadata(&text).map_err(|e| {
+            eprintln!("{path}: {e}");
+            ExitCode::from(2)
+        });
+    }
+    let path = args.lock_path.as_deref().unwrap_or_default();
+    let text = read_file(path)?;
+    parse_lock(&text).map_err(|e| {
+        eprintln!("{path}: {e}");
+        ExitCode::from(2)
+    })
+}
+
+fn read_licenses(path: Option<&str>) -> Result<Vec<(String, String)>, ExitCode> {
+    let Some(path) = path else {
+        return Ok(Vec::new());
+    };
+    let text = read_file(path)?;
+    Ok(text
+        .lines()
+        .filter_map(|l| {
+            let mut parts = l.trim().splitn(2, char::is_whitespace);
+            Some((parts.next()?.to_string(), parts.next()?.trim().to_string()))
+        })
+        .collect())
+}
+
+fn read_file(path: &str) -> Result<String, ExitCode> {
+    std::fs::read_to_string(path).map_err(|e| {
+        eprintln!("cannot read {path}: {e}");
+        ExitCode::from(2)
+    })
+}
+
 fn usage(msg: &str) -> ExitCode {
     eprintln!("tpt-dev-dep: {msg}");
-    eprintln!("usage: tpt-dev-dep <Cargo.lock> [licenses.txt] [--allow ID]...");
+    eprintln!("{USAGE}");
     ExitCode::from(2)
 }

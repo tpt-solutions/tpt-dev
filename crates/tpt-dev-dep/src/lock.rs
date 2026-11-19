@@ -1,30 +1,95 @@
-//! Parsing `Cargo.lock` and building the dependency graph.
+//! The dependency graph shared by the `Cargo.lock` and `cargo metadata` readers.
 
-/// One package in the lock file.
+/// Which kind of dependency an edge is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum DepKind {
+    /// A normal dependency.
+    Normal,
+    /// A dev-dependency (`[dev-dependencies]`).
+    Dev,
+    /// A build-dependency (`[build-dependencies]`).
+    Build,
+}
+
+/// Which edge kinds the analysis follows.
+///
+/// Normal edges are always followed. Dev and build edges are followed only when
+/// asked. `Cargo.lock` does not record kinds, so every lock-file edge is normal.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Scope {
+    /// Follow dev-dependency edges.
+    pub dev: bool,
+    /// Follow build-dependency edges.
+    pub build: bool,
+}
+
+impl Scope {
+    /// Follows every kind of edge.
+    pub const ALL: Scope = Scope {
+        dev: true,
+        build: true,
+    };
+
+    /// Returns `true` if edges of `kind` are followed.
+    pub fn includes(self, kind: DepKind) -> bool {
+        match kind {
+            DepKind::Normal => true,
+            DepKind::Dev => self.dev,
+            DepKind::Build => self.build,
+        }
+    }
+}
+
+/// One outgoing edge of a package.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Dependency {
+    /// The target, as a name, or `name version` when several versions are present.
+    /// [`Graph::resolve`] turns it into a package index.
+    pub target: String,
+    /// The kind of dependency.
+    pub kind: DepKind,
+    /// Whether the manifest marks the dependency as optional.
+    pub optional: bool,
+}
+
+impl Dependency {
+    /// A normal, non-optional edge to `target`.
+    pub fn normal(target: impl Into<String>) -> Self {
+        Dependency {
+            target: target.into(),
+            kind: DepKind::Normal,
+            optional: false,
+        }
+    }
+}
+
+/// One package in the graph.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Package {
     /// Crate name.
     pub name: String,
     /// Exact version.
     pub version: String,
-    /// Dependencies, as written in the lock file: a name, or `name version` when
-    /// several versions are present.
-    pub dependencies: Vec<String>,
+    /// Where the package comes from, such as `registry+...`, or `None` for a
+    /// path or workspace package.
+    pub source: Option<String>,
+    /// Outgoing edges.
+    pub dependencies: Vec<Dependency>,
 }
 
 /// The dependency graph of a workspace.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct Graph {
-    /// Packages, in lock-file order.
+    /// Packages, in input order.
     pub packages: Vec<Package>,
 }
 
 impl Graph {
-    /// Index of the package matching a dependency string.
+    /// Index of the package matching a dependency target.
     ///
-    /// A dependency is either `name` (when only one version exists) or `name version`.
-    pub fn resolve(&self, dep: &str) -> Option<usize> {
-        let mut parts = dep.split_whitespace();
+    /// A target is either `name` (when only one version exists) or `name version`.
+    pub fn resolve(&self, target: &str) -> Option<usize> {
+        let mut parts = target.split_whitespace();
         let name = parts.next()?;
         let version = parts.next();
         self.packages
@@ -32,15 +97,16 @@ impl Graph {
             .position(|p| p.name == name && version.is_none_or(|v| p.version == v))
     }
 
-    /// Each package's direct dependencies, as package indices. Unresolvable
-    /// entries are dropped.
-    pub fn edges(&self) -> Vec<Vec<usize>> {
+    /// Each package's direct dependencies, as package indices, following only
+    /// the edge kinds in `scope`. Unresolvable targets are dropped.
+    pub fn edges(&self, scope: Scope) -> Vec<Vec<usize>> {
         self.packages
             .iter()
             .map(|p| {
                 p.dependencies
                     .iter()
-                    .filter_map(|d| self.resolve(d))
+                    .filter(|d| scope.includes(d.kind))
+                    .filter_map(|d| self.resolve(&d.target))
                     .collect()
             })
             .collect()
@@ -49,18 +115,19 @@ impl Graph {
 
 /// Parses the text of a `Cargo.lock` file.
 ///
-/// Reads the `[[package]]` tables for `name`, `version`, and the `dependencies`
-/// array. Other fields are ignored, so lock-file versions 3 and 4 both parse.
+/// Reads the `[[package]]` tables for `name`, `version`, `source` and the
+/// `dependencies` array. Other fields are ignored, so lock-file versions 3 and 4
+/// both parse. Every lock-file dependency is a normal, non-optional edge.
 ///
 /// ```
-/// use tpt_dev_dep::parse_lock;
+/// use tpt_dev_dep::{Scope, parse_lock};
 ///
 /// let g = parse_lock(
 ///     "[[package]]\nname = \"app\"\nversion = \"1.0.0\"\ndependencies = [\"lib\"]\n\n\
 ///      [[package]]\nname = \"lib\"\nversion = \"0.1.0\"\n",
 /// ).unwrap();
 /// assert_eq!(g.packages.len(), 2);
-/// assert_eq!(g.edges()[0], vec![1]);
+/// assert_eq!(g.edges(Scope::default())[0], vec![1]);
 /// ```
 pub fn parse_lock(text: &str) -> Result<Graph, String> {
     let mut packages: Vec<Package> = Vec::new();
@@ -76,7 +143,7 @@ pub fn parse_lock(text: &str) -> Result<Graph, String> {
             let dep =
                 quoted(line).ok_or_else(|| format!("line {}: bad dependency entry", i + 1))?;
             if let Some(p) = current.as_mut() {
-                p.dependencies.push(dep);
+                p.dependencies.push(Dependency::normal(dep));
             }
             continue;
         }
@@ -87,6 +154,7 @@ pub fn parse_lock(text: &str) -> Result<Graph, String> {
             current = Some(Package {
                 name: String::new(),
                 version: String::new(),
+                source: None,
                 dependencies: Vec::new(),
             });
         } else if let Some(rest) = line.strip_prefix("name = ") {
@@ -96,6 +164,10 @@ pub fn parse_lock(text: &str) -> Result<Graph, String> {
         } else if let Some(rest) = line.strip_prefix("version = ") {
             if let Some(p) = current.as_mut() {
                 p.version = quoted(rest).ok_or_else(|| format!("line {}: bad version", i + 1))?;
+            }
+        } else if let Some(rest) = line.strip_prefix("source = ") {
+            if let Some(p) = current.as_mut() {
+                p.source = Some(quoted(rest).ok_or_else(|| format!("line {}: bad source", i + 1))?);
             }
         } else if let Some(rest) = line.strip_prefix("dependencies = ") {
             let rest = rest.trim();
@@ -107,7 +179,7 @@ pub fn parse_lock(text: &str) -> Result<Graph, String> {
                     for item in inner.split(',').filter(|s| !s.trim().is_empty()) {
                         let dep = quoted(item)
                             .ok_or_else(|| format!("line {}: bad dependency entry", i + 1))?;
-                        p.dependencies.push(dep);
+                        p.dependencies.push(Dependency::normal(dep));
                     }
                 }
             } else {
@@ -130,6 +202,6 @@ pub fn parse_lock(text: &str) -> Result<Graph, String> {
 /// The text inside the first pair of double quotes in `s`.
 fn quoted(s: &str) -> Option<String> {
     let start = s.find('"')? + 1;
-    let end = start + s[start..].find('"')?;
-    Some(s[start..end].to_string())
+    let end = start + s.get(start..)?.find('"')?;
+    Some(s.get(start..end)?.to_string())
 }
