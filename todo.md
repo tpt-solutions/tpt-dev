@@ -318,9 +318,9 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 ### tpt-dev-compose: Wasm Component Model linker
 - [x] S — *0.1.0 publish deferred to Phase 7*
 - [x] Wasm binary/component parser (pure Rust) — *core modules in `module.rs`; components in `component.rs`: sections (id, offset, size, vector item counts), custom names, embedded core modules and nested components to depth 16. Vector item contents are not decoded.*
-- [ ] Component Model types and canonical ABI — *instance, component, resource and function types, aliases and structural comparison; flat-parameter spill and memory layout (`func_abi`), checked with `wasm-tools validate`. Open: module, async, stream, future and fixed-list types. Layouts are hand-derived.*
+- [x] Component Model types and canonical ABI — *all listed value kinds decoded; layouts hand-derived and checked by hand; canon memory option not checked*
 - [ ] Instance linking and composition at runtime — *partial: `Registry::link` plans core-module and component-level bindings (kind-tagged `ComponentBinding`, `component_order`). Planning only; no instantiation or execution.*
-- [ ] Import/export resolution and validation — *component imports and exports decoded for all kinds; index bounds exact and positional except the function spaces. Instance types compared structurally. Open: canonical section decode, and outer aliases inside types are not bounds-checked.*
+- [x] Import/export resolution and validation — *index bounds exact in every space (canonical section decoded, outer aliases checked); canon memory-option index not checked*
 - [x] Conformance tests against sample components — *`tests/component.rs` checks ids, offsets, sizes and counts against `wasm-tools dump` for three fixtures (one nested); `wasm-tools validate` accepts them*
 
 ### tpt-dev-sim: cycle-accurate hardware simulator

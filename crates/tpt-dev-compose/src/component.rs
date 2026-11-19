@@ -10,16 +10,18 @@
 //! Core exports other than modules are refused with [`ErrorKind::UnsupportedSort`].
 //! Aliases (section 6) are decoded too.
 //!
-//! The canonical function section (8) is not decoded: its entries have variable
-//! length, and only the number of entries is known. Section order is not
-//! enforced, since components may place sections in any order.
+//! The canonical function section (8) is decoded for `canon lift`, `canon lower`
+//! and the three resource built-ins. Other built-ins and the async, callback,
+//! core-type and gc options are refused, since they are not modelled. Section
+//! order is not enforced, since components may place sections in any order.
 //!
-//! Index bounds are exact for every space except the two function spaces, which
-//! the canonical section also feeds. An index is checked against the entries
-//! defined before it, in section order, so a reference to a later definition is
-//! refused. Inside component and instance types, indices are checked against the
-//! type's own declarations. Outer aliases, which name an enclosing scope, are not
-//! bounds-checked, since that scope is not tracked here.
+//! Index bounds are exact for every space. An index is checked against the
+//! entries defined before it, in section order, so a reference to a later
+//! definition is refused. Each component and each component or module type is a
+//! scope. An outer alias names a scope that encloses it, and is checked against
+//! that scope's entries, so a count beyond the outermost scope is refused. The
+//! memory option of a canonical entry is not checked, since core memories are not
+//! tracked.
 
 use alloc::collections::BTreeSet;
 use alloc::string::String;
@@ -27,7 +29,7 @@ use alloc::vec::Vec;
 
 use crate::compare::{Entry, top_entries};
 use crate::module::{self, ErrorKind, Module, ParseError};
-use crate::types::{self, Decl, TypeDef, ValueType};
+use crate::types::{self, CoreType, Decl, ModuleDecl, TypeDef, ValueType};
 
 /// The deepest nesting of components the parser accepts.
 pub const MAX_DEPTH: usize = 16;
@@ -273,6 +275,63 @@ pub struct ComponentExport {
     pub desc: Option<ExternDesc>,
 }
 
+/// A canonical option of a `canon lift` or `canon lower`.
+///
+/// Options that change how a function is called, such as `async`, `callback`,
+/// `core-type` and `gc`, are refused with [`ErrorKind::UnsupportedCanonOption`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CanonOption {
+    /// Strings are UTF-8.
+    Utf8,
+    /// Strings are UTF-16.
+    Utf16,
+    /// Strings are Latin-1 or UTF-16, whichever the value takes.
+    CompactUtf16,
+    /// The core memory at this index.
+    Memory(u32),
+    /// The core function at this index, which allocates memory for the callee.
+    Realloc(u32),
+    /// The core function at this index, which runs after the callee returns.
+    PostReturn(u32),
+}
+
+/// One entry of a canonical function section.
+///
+/// The built-ins other than the ones here, such as the task, stream, future,
+/// thread and waitable intrinsics, are refused with
+/// [`ErrorKind::UnsupportedCanon`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Canon {
+    /// `canon lift`: a component function, made from the core function at
+    /// `core_func`, whose type is the component type at `type_index`. It adds a
+    /// component function.
+    Lift {
+        /// The core function that implements the component function.
+        core_func: u32,
+        /// The options it is lifted with.
+        options: Vec<CanonOption>,
+        /// The component function type.
+        type_index: u32,
+    },
+    /// `canon lower`: a core function that calls the component function `func`.
+    /// It adds a core function.
+    Lower {
+        /// The component function being lowered.
+        func: u32,
+        /// The options it is lowered with.
+        options: Vec<CanonOption>,
+    },
+    /// `canon resource.new`: a core function that makes a handle to a new
+    /// resource of the given type. It adds a core function.
+    ResourceNew(u32),
+    /// `canon resource.drop`: a core function that drops a handle of the given
+    /// resource type. It adds a core function.
+    ResourceDrop(u32),
+    /// `canon resource.rep`: a core function that gives the representation of a
+    /// handle of the given resource type. It adds a core function.
+    ResourceRep(u32),
+}
+
 /// One section of a component.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Section {
@@ -300,6 +359,8 @@ pub struct Section {
     pub exports: Option<Vec<ComponentExport>>,
     /// For alias sections (id 6), the aliases, in order.
     pub aliases: Option<Vec<Alias>>,
+    /// For canonical function sections (id 8), the entries, in order.
+    pub canons: Option<Vec<Canon>>,
 }
 
 impl Section {
@@ -326,14 +387,19 @@ impl Section {
 
 /// Reads a component from its binary form.
 pub fn parse(bytes: &[u8]) -> Result<Component, ParseError> {
-    parse_at(bytes, 0, 0)
+    parse_at(bytes, 0, 0, Vec::new())
 }
 
 fn err(offset: usize, kind: ErrorKind) -> ParseError {
     ParseError { offset, kind }
 }
 
-fn parse_at(bytes: &[u8], base: usize, depth: usize) -> Result<Component, ParseError> {
+fn parse_at(
+    bytes: &[u8],
+    base: usize,
+    depth: usize,
+    enclosing: Vec<Counts>,
+) -> Result<Component, ParseError> {
     if depth > MAX_DEPTH {
         return Err(err(base, ErrorKind::NestingTooDeep));
     }
@@ -358,6 +424,7 @@ fn parse_at(bytes: &[u8], base: usize, depth: usize) -> Result<Component, ParseE
         base,
     };
     let mut sections = Vec::new();
+    let mut scopes = Scopes::new(enclosing);
     while !r.done() {
         let offset = r.base + r.pos;
         let id = r.byte()?;
@@ -378,6 +445,7 @@ fn parse_at(bytes: &[u8], base: usize, depth: usize) -> Result<Component, ParseE
             imports: None,
             exports: None,
             aliases: None,
+            canons: None,
         };
         match id {
             0 => {
@@ -396,7 +464,7 @@ fn parse_at(bytes: &[u8], base: usize, depth: usize) -> Result<Component, ParseE
                 section.core_module = Some(parsed);
             }
             4 => {
-                section.nested = Some(parse_at(body, body_base, depth + 1)?);
+                section.nested = Some(parse_at(body, body_base, depth + 1, scopes.snapshot())?);
             }
             7 => {
                 let mut s = Reader {
@@ -462,7 +530,24 @@ fn parse_at(bytes: &[u8], base: usize, depth: usize) -> Result<Component, ParseE
                 }
                 section.aliases = Some(aliases);
             }
-            2 | 3 | 5 | 8 | 12 => {
+            8 => {
+                let mut s = Reader {
+                    bytes: body,
+                    pos: 0,
+                    base: body_base,
+                };
+                let n = s.count()?;
+                section.count = Some(n);
+                let mut canons = Vec::with_capacity(n as usize);
+                for _ in 0..n {
+                    canons.push(canon(&mut s)?);
+                }
+                if !s.done() {
+                    return Err(s.err(ErrorKind::TrailingBytes));
+                }
+                section.canons = Some(canons);
+            }
+            2 | 3 | 5 | 12 => {
                 let mut s = Reader {
                     bytes: body,
                     pos: 0,
@@ -473,9 +558,9 @@ fn parse_at(bytes: &[u8], base: usize, depth: usize) -> Result<Component, ParseE
             9 => {}
             other => return Err(err(offset, ErrorKind::BadSectionId(other))),
         }
+        check_section(&section, &mut scopes)?;
         sections.push(section);
     }
-    check_sections(&sections)?;
     check_names(&sections)?;
     Ok(Component { sections })
 }
@@ -539,6 +624,64 @@ pub(crate) fn alias(r: &mut Reader<'_>) -> Result<Alias, ParseError> {
         }
         other => Err(r.err(ErrorKind::BadTypeEncoding(other))),
     }
+}
+
+/// Reads a canonical function entry: an opcode, then its immediates.
+pub(crate) fn canon(r: &mut Reader<'_>) -> Result<Canon, ParseError> {
+    let op = r.byte()?;
+    Ok(match op {
+        // canon lift: a 0x00 sub-opcode, the core function, the options, the type.
+        0x00 => {
+            expect_zero(r)?;
+            let core_func = r.u32()?;
+            let options = canon_options(r)?;
+            let type_index = r.u32()?;
+            Canon::Lift {
+                core_func,
+                options,
+                type_index,
+            }
+        }
+        // canon lower: a 0x00 sub-opcode, the component function, the options.
+        0x01 => {
+            expect_zero(r)?;
+            let func = r.u32()?;
+            let options = canon_options(r)?;
+            Canon::Lower { func, options }
+        }
+        0x02 => Canon::ResourceNew(r.u32()?),
+        0x03 => Canon::ResourceDrop(r.u32()?),
+        0x04 => Canon::ResourceRep(r.u32()?),
+        other => return Err(r.err(ErrorKind::UnsupportedCanon(other))),
+    })
+}
+
+/// Reads the 0x00 sub-opcode that the lift and lower entries carry.
+fn expect_zero(r: &mut Reader<'_>) -> Result<(), ParseError> {
+    match r.byte()? {
+        0x00 => Ok(()),
+        other => Err(r.err(ErrorKind::BadTypeEncoding(other))),
+    }
+}
+
+/// Reads a vector of canonical options.
+fn canon_options(r: &mut Reader<'_>) -> Result<Vec<CanonOption>, ParseError> {
+    let n = r.count()?;
+    let mut out = Vec::with_capacity(n as usize);
+    for _ in 0..n {
+        let opt = match r.byte()? {
+            0x00 => CanonOption::Utf8,
+            0x01 => CanonOption::Utf16,
+            0x02 => CanonOption::CompactUtf16,
+            0x03 => CanonOption::Memory(r.u32()?),
+            0x04 => CanonOption::Realloc(r.u32()?),
+            0x05 => CanonOption::PostReturn(r.u32()?),
+            code @ 0x06..=0x09 => return Err(r.err(ErrorKind::UnsupportedCanonOption(code))),
+            other => return Err(r.err(ErrorKind::BadTypeEncoding(other))),
+        };
+        out.push(opt);
+    }
+    Ok(out)
 }
 
 /// Reads an extern name: a 0x00 flag, then a length-prefixed UTF-8 name.
@@ -625,7 +768,7 @@ fn export(r: &mut Reader<'_>) -> Result<ComponentExport, ParseError> {
 }
 
 /// The number of entries each index space holds, as the sections defined so far.
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Counts {
     core_module: u64,
     core_type: u64,
@@ -669,58 +812,120 @@ impl Counts {
     }
 }
 
-/// Walks the sections in order, checking each index against the entries defined
-/// before it. A canonical function section adds to both function spaces, since
-/// its entries are not decoded, so the bound there is an upper one.
-fn check_sections(sections: &[Section]) -> Result<(), ParseError> {
-    let mut counts = Counts::default();
-    for s in sections {
-        let at = |kind| err(s.offset, kind);
-        let n = u64::from(s.count.unwrap_or(0));
-        match s.id {
-            1 => counts.bump(Space::CoreModule, 1),
-            2 => counts.bump(Space::CoreInstance, n),
-            3 => counts.bump(Space::CoreType, n),
-            4 => counts.bump(Space::Component, 1),
-            5 => counts.bump(Space::Instance, n),
-            6 => {
-                for alias in s.aliases.iter().flatten() {
-                    if let Some(space) = alias.space() {
-                        counts.bump(space, 1);
-                    }
-                }
-            }
-            7 => match &s.types {
-                Some(defs) => {
-                    for def in defs {
-                        check_def(def, &counts).map_err(at)?;
-                        counts.bump(Space::Type, 1);
-                    }
-                }
-                None => counts.bump(Space::Type, n),
-            },
-            8 => {
-                counts.bump(Space::Func, n);
-                counts.bump(Space::CoreFunc, n);
-            }
-            10 => {
-                for import in s.imports.iter().flatten() {
-                    check_desc(&counts, &import.desc).map_err(at)?;
-                    counts.bump(import.desc.kind().space(), 1);
-                }
-            }
-            11 => {
-                for export in s.exports.iter().flatten() {
-                    check_index(&counts, export.kind.space(), export.index).map_err(at)?;
-                    if let Some(desc) = &export.desc {
-                        check_desc(&counts, desc).map_err(at)?;
-                    }
-                }
-            }
-            12 => counts.bump(Space::Value, n),
-            _ => {}
+/// The index spaces of the scope being checked, and of the scopes around it.
+///
+/// A component and each component or module type is a scope. An outer alias
+/// with count `n` names the scope `n` levels out, where zero is the scope being
+/// checked. `enclosing` is ordered outermost first, so its last entry is the
+/// nearest enclosing scope.
+struct Scopes {
+    enclosing: Vec<Counts>,
+    local: Counts,
+}
+
+impl Scopes {
+    fn new(enclosing: Vec<Counts>) -> Self {
+        Self {
+            enclosing,
+            local: Counts::default(),
         }
     }
+
+    /// The scopes a component nested in this one sees: the enclosing scopes,
+    /// then this one as it stands now.
+    fn snapshot(&self) -> Vec<Counts> {
+        let mut all = self.enclosing.clone();
+        all.push(self.local.clone());
+        all
+    }
+
+    /// Starts a nested scope. The current scope becomes enclosing.
+    fn enter(&mut self) {
+        let parent = core::mem::take(&mut self.local);
+        self.enclosing.push(parent);
+    }
+
+    /// Ends the nested scope that `enter` started, and restores the parent.
+    fn leave(&mut self) {
+        if let Some(parent) = self.enclosing.pop() {
+            self.local = parent;
+        }
+    }
+
+    /// The scope `count` levels out, or an error if there is no such scope.
+    fn outer(&self, count: u32) -> Result<&Counts, ErrorKind> {
+        if count == 0 {
+            return Ok(&self.local);
+        }
+        self.enclosing
+            .len()
+            .checked_sub(count as usize)
+            .and_then(|i| self.enclosing.get(i))
+            .ok_or(ErrorKind::BadOuterScope(count))
+    }
+}
+
+/// Checks one section against the entries defined before it, then adds the
+/// entries the section defines to the scope. Each index is checked as the
+/// sections are read, so a reference to a later definition is refused.
+fn check_section(s: &Section, scopes: &mut Scopes) -> Result<(), ParseError> {
+    let at = |kind| err(s.offset, kind);
+    let n = u64::from(s.count.unwrap_or(0));
+    match s.id {
+        1 => scopes.local.bump(Space::CoreModule, 1),
+        2 => scopes.local.bump(Space::CoreInstance, n),
+        3 => scopes.local.bump(Space::CoreType, n),
+        4 => scopes.local.bump(Space::Component, 1),
+        5 => scopes.local.bump(Space::Instance, n),
+        6 => {
+            for alias in s.aliases.iter().flatten() {
+                check_alias(alias, scopes).map_err(at)?;
+            }
+        }
+        7 => match &s.types {
+            Some(defs) => {
+                for def in defs {
+                    check_def(def, scopes).map_err(at)?;
+                    scopes.local.bump(Space::Type, 1);
+                }
+            }
+            None => scopes.local.bump(Space::Type, n),
+        },
+        8 => {
+            for canon in s.canons.iter().flatten() {
+                check_canon(canon, &mut scopes.local).map_err(at)?;
+            }
+        }
+        10 => {
+            for import in s.imports.iter().flatten() {
+                check_desc(&scopes.local, &import.desc).map_err(at)?;
+                scopes.local.bump(import.desc.kind().space(), 1);
+            }
+        }
+        11 => {
+            for export in s.exports.iter().flatten() {
+                check_index(&scopes.local, export.kind.space(), export.index).map_err(at)?;
+                if let Some(desc) = &export.desc {
+                    check_desc(&scopes.local, desc).map_err(at)?;
+                }
+            }
+        }
+        12 => scopes.local.bump(Space::Value, n),
+        _ => {}
+    }
+    Ok(())
+}
+
+/// Checks an alias. An outer alias names an entry of an enclosing scope, which
+/// must exist and must hold the index. The alias then adds its entry.
+fn check_alias(alias: &Alias, scopes: &mut Scopes) -> Result<(), ErrorKind> {
+    let Some(space) = alias.space() else {
+        return Ok(());
+    };
+    if let Alias::Outer { count, index, .. } = alias {
+        check_index(scopes.outer(*count)?, space, *index)?;
+    }
+    scopes.local.bump(space, 1);
     Ok(())
 }
 
@@ -747,10 +952,62 @@ fn check_desc(counts: &Counts, desc: &ExternDesc) -> Result<(), ErrorKind> {
     }
 }
 
-/// Checks the type references in a defined type. `counts` holds the entries
-/// defined before this type, so every reference must name one of them. A
-/// component or instance type is checked against its own declarations.
-fn check_def(def: &TypeDef, counts: &Counts) -> Result<(), ErrorKind> {
+/// Checks a canonical function entry against the entries before it, then adds
+/// the function it defines: a component function for a lift, a core function
+/// for anything else.
+fn check_canon(canon: &Canon, counts: &mut Counts) -> Result<(), ErrorKind> {
+    match canon {
+        Canon::Lift {
+            core_func,
+            options,
+            type_index,
+        } => {
+            check_index(counts, Space::CoreFunc, *core_func)?;
+            check_index(counts, Space::Type, *type_index)?;
+            check_options(counts, options)?;
+            counts.bump(Space::Func, 1);
+        }
+        Canon::Lower { func, options } => {
+            check_index(counts, Space::Func, *func)?;
+            check_options(counts, options)?;
+            counts.bump(Space::CoreFunc, 1);
+        }
+        Canon::ResourceNew(t) | Canon::ResourceDrop(t) | Canon::ResourceRep(t) => {
+            check_index(counts, Space::Type, *t)?;
+            counts.bump(Space::CoreFunc, 1);
+        }
+    }
+    Ok(())
+}
+
+/// Checks the options that name core functions. A memory option names a core
+/// memory, which this parser does not track, so it is not checked.
+fn check_options(counts: &Counts, options: &[CanonOption]) -> Result<(), ErrorKind> {
+    for option in options {
+        match option {
+            CanonOption::Realloc(i) | CanonOption::PostReturn(i) => {
+                check_index(counts, Space::CoreFunc, *i)?;
+            }
+            CanonOption::Utf8
+            | CanonOption::Utf16
+            | CanonOption::CompactUtf16
+            | CanonOption::Memory(_) => {}
+        }
+    }
+    Ok(())
+}
+
+/// Checks a type definition. A component or instance type gets its own scope.
+/// Any other definition is checked against the entries of the current scope.
+fn check_def(def: &TypeDef, scopes: &mut Scopes) -> Result<(), ErrorKind> {
+    match def {
+        TypeDef::Component(decls) | TypeDef::Instance(decls) => check_decls(decls, scopes),
+        _ => check_refs(def, &scopes.local),
+    }
+}
+
+/// Checks the type references in a definition that has no scope of its own.
+fn check_refs(def: &TypeDef, counts: &Counts) -> Result<(), ErrorKind> {
     let value = |v: &ValueType| match v {
         ValueType::Primitive(_) => Ok(()),
         ValueType::Index(i) => check_index(counts, Space::Type, *i),
@@ -765,44 +1022,72 @@ fn check_def(def: &TypeDef, counts: &Counts) -> Result<(), ErrorKind> {
         TypeDef::Tuple(ts) => ts.iter().try_for_each(value),
         TypeDef::Result { ok, err } => opt(ok).and(opt(err)),
         TypeDef::Own(i) | TypeDef::Borrow(i) => check_index(counts, Space::Type, *i),
-        TypeDef::Func(ft) => ft
+        TypeDef::Func(ft) | TypeDef::AsyncFunc(ft) => ft
             .params
             .iter()
             .chain(ft.results.iter())
             .try_for_each(|f| value(&f.ty)),
-        TypeDef::Component(decls) | TypeDef::Instance(decls) => check_decls(decls),
+        TypeDef::Map(k, v) => value(k).and(value(v)),
+        TypeDef::FixedList(t, _) => value(t),
+        TypeDef::Stream(t) | TypeDef::Future(t) => opt(t),
+        // Checked by `check_decls`, in the scope of their own declarations.
+        TypeDef::Component(_) | TypeDef::Instance(_) => Ok(()),
     }
 }
 
-/// Checks the declarations of a component or instance type, in order, each
-/// against the entries its own declarations have defined before it.
-fn check_decls(decls: &[Decl]) -> Result<(), ErrorKind> {
-    let mut local = Counts::default();
-    for decl in decls {
-        match decl {
-            Decl::CoreType(_) => local.bump(Space::CoreType, 1),
-            Decl::Type(def) => {
-                check_def(def, &local)?;
-                local.bump(Space::Type, 1);
-            }
-            Decl::Alias(alias) => {
-                if let Some(space) = alias.space() {
-                    local.bump(space, 1);
-                }
-            }
-            Decl::Import(import) => {
-                check_desc(&local, &import.desc)?;
-                local.bump(import.desc.kind().space(), 1);
-            }
-            // An export in a type defines an entry in the space of its kind, as
-            // an import does. A top-level export defines nothing.
-            Decl::Export { desc, .. } => {
-                check_desc(&local, desc)?;
-                local.bump(desc.kind().space(), 1);
-            }
+/// Checks the declarations of a component or instance type, in order, in a
+/// scope of their own.
+fn check_decls(decls: &[Decl], scopes: &mut Scopes) -> Result<(), ErrorKind> {
+    scopes.enter();
+    let result = decls.iter().try_for_each(|d| check_decl(d, scopes));
+    scopes.leave();
+    result
+}
+
+fn check_decl(decl: &Decl, scopes: &mut Scopes) -> Result<(), ErrorKind> {
+    match decl {
+        Decl::CoreType(CoreType::Func(_)) => scopes.local.bump(Space::CoreType, 1),
+        Decl::CoreType(CoreType::Module(decls)) => {
+            check_module(decls, scopes)?;
+            scopes.local.bump(Space::CoreType, 1);
+        }
+        Decl::Type(def) => {
+            check_def(def, scopes)?;
+            scopes.local.bump(Space::Type, 1);
+        }
+        Decl::Alias(alias) => check_alias(alias, scopes)?,
+        Decl::Import(import) => {
+            check_desc(&scopes.local, &import.desc)?;
+            scopes.local.bump(import.desc.kind().space(), 1);
+        }
+        // An export in a type defines an entry in the space of its kind, as an
+        // import does. A top-level export defines nothing.
+        Decl::Export { desc, .. } => {
+            check_desc(&scopes.local, desc)?;
+            scopes.local.bump(desc.kind().space(), 1);
         }
     }
     Ok(())
+}
+
+/// Checks the declarations of a core module type. Its type indices were checked
+/// when they were read. An outer alias names a core type of an enclosing scope.
+fn check_module(decls: &[ModuleDecl], scopes: &mut Scopes) -> Result<(), ErrorKind> {
+    scopes.enter();
+    let result = decls.iter().try_for_each(|d| match d {
+        ModuleDecl::Type(_) => {
+            scopes.local.bump(Space::CoreType, 1);
+            Ok(())
+        }
+        ModuleDecl::Alias { count, index } => {
+            check_index(scopes.outer(*count)?, Space::CoreType, *index)?;
+            scopes.local.bump(Space::CoreType, 1);
+            Ok(())
+        }
+        ModuleDecl::Import(_) | ModuleDecl::Export { .. } => Ok(()),
+    });
+    scopes.leave();
+    result
 }
 
 /// Refuses two imports with one name, and two exports with one name.

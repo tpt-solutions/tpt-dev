@@ -267,10 +267,14 @@ fn a_module_type_leaves_the_section_undecoded_but_counted() {
 }
 
 #[test]
-fn an_async_function_type_is_left_undecoded() {
-    let body: &[u8] = &[0x01, 0x43, 0x00, 0x00];
+fn an_async_function_type_is_decoded_apart_from_a_sync_one() {
+    // One async function type with no parameters and an empty named result list.
+    let body: &[u8] = &[0x01, 0x43, 0x00, 0x01, 0x00];
     let c = parse(&component_with(7, body)).unwrap();
-    assert_eq!(c.sections[0].types, None);
+    assert!(matches!(
+        c.sections[0].types.as_deref(),
+        Some([TypeDef::AsyncFunc(ft)]) if ft.params.is_empty() && ft.results.is_empty()
+    ));
 }
 
 #[test]
@@ -325,15 +329,46 @@ fn a_core_instance_alias_of_a_type_is_refused() {
 
 #[test]
 fn an_outer_alias_adds_a_type_that_a_later_section_can_name() {
-    // An outer type alias (sort 0x03, target 0x02, count 0, index 0) defines
-    // type 0. The next type section item is list<0>, which is now defined.
+    // The outer component defines type 0, a bool. A nested component aliases
+    // it with an outer type alias (sort 0x03, target 0x02, count 1, index 0),
+    // which defines the nested component's type 0. The next type section item
+    // is list<0>, which is now defined.
+    let mut nested = b"\0asm\x0d\0\x01\0".to_vec();
+    nested.extend_from_slice(&[6, 5, 0x01, 0x03, 0x02, 0x01, 0x00]);
+    nested.extend_from_slice(&[7, 3, 0x01, 0x70, 0x00]);
+    let mut bytes = b"\0asm\x0d\0\x01\0".to_vec();
+    bytes.extend_from_slice(&[7, 2, 0x01, 0x7f]);
+    bytes.extend_from_slice(&[4, 20]);
+    bytes.extend_from_slice(&nested);
+    let c = parse(&bytes).unwrap();
+    let inner = c.sections[1].nested.as_ref().unwrap();
+    assert_eq!(
+        inner.sections[1].types.as_ref().unwrap()[0],
+        TypeDef::List(ValueType::Index(0))
+    );
+}
+
+#[test]
+fn an_outer_alias_past_the_enclosing_scopes_is_refused() {
+    // The same nesting, but the alias counts two scopes out. The outer
+    // component is the only scope above the nested one, so this is refused.
+    let mut nested = b"\0asm\x0d\0\x01\0".to_vec();
+    nested.extend_from_slice(&[6, 5, 0x01, 0x03, 0x02, 0x02, 0x00]);
+    let mut bytes = b"\0asm\x0d\0\x01\0".to_vec();
+    bytes.extend_from_slice(&[7, 2, 0x01, 0x7f]);
+    bytes.extend_from_slice(&[4, 15]);
+    bytes.extend_from_slice(&nested);
+    assert_eq!(parse(&bytes).unwrap_err().kind, ErrorKind::BadOuterScope(2));
+}
+
+#[test]
+fn an_outer_alias_of_the_scope_itself_is_refused_before_it_is_defined() {
+    // Count 0 names the component being read, where type 0 is not yet defined.
     let mut bytes = b"\0asm\x0d\0\x01\0".to_vec();
     bytes.extend_from_slice(&[6, 5, 0x01, 0x03, 0x02, 0x00, 0x00]);
-    bytes.extend_from_slice(&[7, 3, 0x01, 0x70, 0x00]);
-    let c = parse(&bytes).unwrap();
     assert_eq!(
-        c.sections[1].types.as_ref().unwrap()[0],
-        TypeDef::List(ValueType::Index(0))
+        parse(&bytes).unwrap_err().kind,
+        ErrorKind::BadComponentIndex(Space::Type, 0)
     );
 }
 

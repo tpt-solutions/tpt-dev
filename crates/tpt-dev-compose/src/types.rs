@@ -2,10 +2,10 @@
 //! size, alignment and flattening for value types.
 //!
 //! [`decode_items`] reads the type section of a component: the defined value
-//! types, function types, resource types, and the component and instance types
-//! with their declarations. Module types, async function types, and the value
-//! types this parser does not model (streams, futures, error contexts, fixed-size
-//! lists, maps) are not decoded, so a section that holds one yields `None`.
+//! types, function types (sync and async), resource types, and the component,
+//! instance and core module types with their declarations. The stream, future,
+//! error-context, fixed-size list and map types are decoded too. A section that
+//! holds a type this parser does not decode yields `None`.
 //! Malformed bytes are a [`ParseError`], never a guess.
 //!
 //! A type reference is an index into the component's whole type index space,
@@ -54,6 +54,42 @@ pub enum Primitive {
     Char,
     /// `string`.
     String,
+    /// `error-context`, which is lowered as an `i32` handle.
+    ErrorContext,
+}
+
+/// A core type declared inside a component or instance type.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CoreType {
+    /// A core function type.
+    Func(module::FuncType),
+    /// A core module type: the imports, exports and types of a module.
+    Module(Vec<ModuleDecl>),
+}
+
+/// A declaration inside a core module type.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ModuleDecl {
+    /// An import. Its type index refers to the module type's own types.
+    Import(module::Import),
+    /// A function type, which adds one entry to the module type's type space.
+    Type(module::FuncType),
+    /// An outer alias of a core type, `count` scopes out. It adds one entry to
+    /// the module type's type space.
+    Alias {
+        /// How many scopes out the type is. Zero is the module type itself.
+        count: u32,
+        /// The index of the type in that scope.
+        index: u32,
+    },
+    /// An export, with its descriptor. Its type index refers to the module
+    /// type's own types.
+    Export {
+        /// The export name.
+        name: String,
+        /// What is exported, and its type.
+        desc: module::ImportDesc,
+    },
 }
 
 /// A value type: a primitive, or a reference to a type by index.
@@ -95,8 +131,9 @@ pub struct FuncType {
 /// A declaration inside a component or instance type.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Decl {
-    /// A core function type, declared with `core type`.
-    CoreType(module::FuncType),
+    /// A core type, declared with `core type`. It adds one entry to the core
+    /// type index space of its enclosing type.
+    CoreType(CoreType),
     /// A type definition. It adds one entry to the type index space of its
     /// enclosing type.
     Type(TypeDef),
@@ -153,6 +190,17 @@ pub enum TypeDef {
         /// The destructor's function index, if one is given.
         dtor: Option<u32>,
     },
+    /// An async function type. It is kept apart from [`TypeDef::Func`], since
+    /// its calling convention differs. It has no ABI layout here.
+    AsyncFunc(FuncType),
+    /// A map from keys to values. Its canonical ABI is that of a list of pairs.
+    Map(ValueType, ValueType),
+    /// A fixed-length list: its element type and its length, which is at least one.
+    FixedList(ValueType, u32),
+    /// A stream of an optional payload type, lowered as an `i32` handle.
+    Stream(Option<ValueType>),
+    /// A future of an optional payload type, lowered as an `i32` handle.
+    Future(Option<ValueType>),
     /// A component type, with its declarations in order.
     Component(Vec<Decl>),
     /// An instance type, with its declarations in order.
@@ -196,6 +244,7 @@ fn primitive(byte: u8) -> Option<Primitive> {
         0x75 => Primitive::F64,
         0x74 => Primitive::Char,
         0x73 => Primitive::String,
+        0x64 => Primitive::ErrorContext,
         _ => return None,
     })
 }
@@ -236,8 +285,8 @@ fn decode_decls(
     for _ in 0..n {
         let decl = match r.byte()? {
             // A core type. Only core function types are decoded.
-            0x00 => match core_functype(r)? {
-                Some(f) => Decl::CoreType(f),
+            0x00 => match core_type(r)? {
+                Some(t) => Decl::CoreType(t),
                 None => return Ok(None),
             },
             0x01 => match decode_item(r, depth + 1)? {
@@ -256,6 +305,74 @@ fn decode_decls(
         out.push(decl);
     }
     Ok(Some(out))
+}
+
+/// Reads a core type: a function type (`0x60`), or a module type (`0x50`).
+/// Any other core type, such as a GC type, returns `None`.
+fn core_type(r: &mut Reader<'_>) -> Result<Option<CoreType>, ParseError> {
+    match r.peek()? {
+        0x60 => Ok(core_functype(r)?.map(CoreType::Func)),
+        0x50 => {
+            r.byte()?;
+            Ok(module_decls(r)?.map(CoreType::Module))
+        }
+        _ => Ok(None),
+    }
+}
+
+/// Reads the declarations of a module type. A declaration that is a rec group
+/// or a sub type returns `None`, since only bare function types are modelled.
+fn module_decls(r: &mut Reader<'_>) -> Result<Option<Vec<ModuleDecl>>, ParseError> {
+    let n = r.count()?;
+    let mut out = Vec::with_capacity(n as usize);
+    // The core types the module type has defined so far, which its type indices refer to.
+    let mut types = 0u32;
+    for _ in 0..n {
+        match r.byte()? {
+            0x00 => {
+                let module = r.name()?;
+                let name = r.name()?;
+                let desc = import_desc(r, types)?;
+                out.push(ModuleDecl::Import(module::Import { module, name, desc }));
+            }
+            0x01 => match core_functype(r)? {
+                Some(f) => {
+                    out.push(ModuleDecl::Type(f));
+                    types += 1;
+                }
+                None => return Ok(None),
+            },
+            0x02 => {
+                match r.byte()? {
+                    0x10 => {}
+                    other => return Err(r.err(ErrorKind::BadTypeEncoding(other))),
+                }
+                match r.byte()? {
+                    0x01 => {}
+                    other => return Err(r.err(ErrorKind::BadTypeEncoding(other))),
+                }
+                let count = r.u32()?;
+                let index = r.u32()?;
+                out.push(ModuleDecl::Alias { count, index });
+                types += 1;
+            }
+            0x03 => {
+                let name = r.name()?;
+                let desc = import_desc(r, types)?;
+                out.push(ModuleDecl::Export { name, desc });
+            }
+            other => return Err(r.err(ErrorKind::BadTypeEncoding(other))),
+        }
+    }
+    Ok(Some(out))
+}
+
+/// Reads an import or export descriptor, whose type indices must be below `types`.
+fn import_desc(r: &mut Reader<'_>, types: u32) -> Result<module::ImportDesc, ParseError> {
+    let (desc, used) =
+        module::import_desc_prefix(&r.bytes[r.pos..], r.base + r.pos, types as usize)?;
+    r.pos += used;
+    Ok(desc)
 }
 
 /// Reads a core function type: `0x60`, then the parameter and result vectors.
@@ -365,26 +482,44 @@ fn decode_item(r: &mut Reader<'_>, depth: usize) -> Result<Option<TypeDef>, Pars
         }
         0x69 => TypeDef::Own(r.u32()?),
         0x68 => TypeDef::Borrow(r.u32()?),
-        0x40 => {
-            let params = fields(r)?;
-            let results = match r.byte()? {
-                // A single unnamed result.
-                0x00 => vec![Field {
-                    name: String::new(),
-                    ty: value_type(r)?,
-                }],
-                // A list of named results, which may be empty.
-                0x01 => fields(r)?,
-                other => return Err(r.err(ErrorKind::BadTypeEncoding(other))),
-            };
-            TypeDef::Func(FuncType { params, results })
+        0x40 => TypeDef::Func(func_type(r)?),
+        0x43 => TypeDef::AsyncFunc(func_type(r)?),
+        0x63 => {
+            let key = value_type(r)?;
+            let value = value_type(r)?;
+            TypeDef::Map(key, value)
         }
-        // Async function types, module types, and the value types this parser
-        // does not model (streams, futures, error contexts, fixed lists, maps)
-        // are left undecoded.
+        0x65 => TypeDef::Future(opt_value_type(r)?),
+        0x66 => TypeDef::Stream(opt_value_type(r)?),
+        0x67 => {
+            let elem = value_type(r)?;
+            let len = r.u32()?;
+            if len == 0 {
+                return Err(r.err(ErrorKind::EmptyFixedList));
+            }
+            TypeDef::FixedList(elem, len)
+        }
+        // Module types are decoded where they are declared, in a component or
+        // instance type. The other value types are left undecoded.
         _ => return Ok(None),
     };
     Ok(Some(def))
+}
+
+/// Reads the parameters and results of a function type, after its tag byte.
+fn func_type(r: &mut Reader<'_>) -> Result<FuncType, ParseError> {
+    let params = fields(r)?;
+    let results = match r.byte()? {
+        // A single unnamed result.
+        0x00 => vec![Field {
+            name: String::new(),
+            ty: value_type(r)?,
+        }],
+        // A list of named results, which may be empty.
+        0x01 => fields(r)?,
+        other => return Err(r.err(ErrorKind::BadTypeEncoding(other))),
+    };
+    Ok(FuncType { params, results })
 }
 
 fn fields(r: &mut Reader<'_>) -> Result<Vec<Field>, ParseError> {
@@ -445,7 +580,11 @@ fn prim_layout(p: Primitive) -> Layout {
     let (size, align) = match p {
         Primitive::Bool | Primitive::S8 | Primitive::U8 => (1, 1),
         Primitive::S16 | Primitive::U16 => (2, 2),
-        Primitive::S32 | Primitive::U32 | Primitive::Char | Primitive::F32 => (4, 4),
+        Primitive::S32
+        | Primitive::U32
+        | Primitive::Char
+        | Primitive::F32
+        | Primitive::ErrorContext => (4, 4),
         Primitive::S64 | Primitive::U64 | Primitive::F64 => (8, 8),
         // A string is a pointer and a length.
         Primitive::String => (8, 4),
@@ -462,7 +601,8 @@ fn prim_flat(p: Primitive) -> Vec<ValType> {
         | Primitive::U16
         | Primitive::S32
         | Primitive::U32
-        | Primitive::Char => vec![ValType::I32],
+        | Primitive::Char
+        | Primitive::ErrorContext => vec![ValType::I32],
         Primitive::S64 | Primitive::U64 => vec![ValType::I64],
         Primitive::F32 => vec![ValType::F32],
         Primitive::F64 => vec![ValType::F64],
@@ -526,10 +666,24 @@ impl<'a> Abi<'a> {
             TypeDef::Enum(names) => self.variant_layout(&vec![None; names.len()], depth),
             TypeDef::Option(t) => self.variant_layout(&[None, Some(t)], depth),
             TypeDef::Result { ok, err } => self.variant_layout(&[ok.as_ref(), err.as_ref()], depth),
-            TypeDef::List(_) => Ok(Layout { size: 8, align: 4 }),
-            TypeDef::Own(_) | TypeDef::Borrow(_) => Ok(Layout { size: 4, align: 4 }),
+            TypeDef::List(_) | TypeDef::Map(..) => Ok(Layout { size: 8, align: 4 }),
+            TypeDef::Stream(_) | TypeDef::Future(_) | TypeDef::Own(_) | TypeDef::Borrow(_) => {
+                Ok(Layout { size: 4, align: 4 })
+            }
+            TypeDef::FixedList(elem, len) => {
+                let inner = self.layout_value(elem, depth)?;
+                let size = inner
+                    .size
+                    .checked_mul(*len as usize)
+                    .ok_or(AbiError::TooComplex)?;
+                Ok(Layout {
+                    size,
+                    align: inner.align,
+                })
+            }
             TypeDef::Flags(names) => Ok(flags_layout(names.len())),
-            TypeDef::Func(_)
+            TypeDef::AsyncFunc(_)
+            | TypeDef::Func(_)
             | TypeDef::Resource { .. }
             | TypeDef::Component(_)
             | TypeDef::Instance(_) => Err(AbiError::NotAValueType(index)),
@@ -623,10 +777,26 @@ impl<'a> Abi<'a> {
             TypeDef::Enum(names) => self.variant_flat(&vec![None; names.len()], depth),
             TypeDef::Option(t) => self.variant_flat(&[None, Some(t)], depth),
             TypeDef::Result { ok, err } => self.variant_flat(&[ok.as_ref(), err.as_ref()], depth),
-            TypeDef::List(_) => Ok(vec![ValType::I32, ValType::I32]),
-            TypeDef::Own(_) | TypeDef::Borrow(_) => Ok(vec![ValType::I32]),
+            TypeDef::List(_) | TypeDef::Map(..) => Ok(vec![ValType::I32, ValType::I32]),
+            TypeDef::Stream(_) | TypeDef::Future(_) | TypeDef::Own(_) | TypeDef::Borrow(_) => {
+                Ok(vec![ValType::I32])
+            }
+            TypeDef::FixedList(elem, len) => {
+                // Each element contributes its flat form, so the list has that many
+                // copies of it. The total is bounded before anything is built.
+                let inner = self.flat_value(elem, depth)?;
+                let total = inner
+                    .len()
+                    .checked_mul(*len as usize)
+                    .ok_or(AbiError::TooComplex)?;
+                if total > BUDGET {
+                    return Err(AbiError::TooComplex);
+                }
+                Ok(inner.repeat(*len as usize))
+            }
             TypeDef::Flags(names) => Ok(vec![ValType::I32; names.len().div_ceil(32)]),
-            TypeDef::Func(_)
+            TypeDef::AsyncFunc(_)
+            | TypeDef::Func(_)
             | TypeDef::Resource { .. }
             | TypeDef::Component(_)
             | TypeDef::Instance(_) => Err(AbiError::NotAValueType(index)),

@@ -360,6 +360,14 @@ pub enum ErrorKind {
     DuplicateImport,
     /// An index is at or beyond the most entries its index space can hold.
     BadComponentIndex(Space, u32),
+    /// An outer alias counts more enclosing scopes than there are.
+    BadOuterScope(u32),
+    /// A canonical built-in this parser does not model. The byte is its opcode.
+    UnsupportedCanon(u8),
+    /// A canonical option this parser does not model, such as `async`. The byte is its code.
+    UnsupportedCanonOption(u8),
+    /// A fixed-length list has no elements, which the specification forbids.
+    EmptyFixedList,
 }
 
 /// A parse error, with the byte offset where it was found.
@@ -584,6 +592,42 @@ impl<'a> Reader<'a> {
         }
         Ok(t)
     }
+
+    /// Reads an import descriptor, which is also the form an export takes in a
+    /// module type. `types` is the number of types the descriptor may refer to.
+    fn import_desc(&mut self, types: usize) -> Result<ImportDesc, ParseError> {
+        Ok(match self.byte()? {
+            0x00 => ImportDesc::Func(self.type_index(types)?),
+            0x01 => {
+                let elem = self.reftype()?;
+                let limits = self.limits()?;
+                ImportDesc::Table(TableType { elem, limits })
+            }
+            0x02 => ImportDesc::Memory(self.memory_limits()?),
+            0x03 => ImportDesc::Global(self.global_type()?),
+            0x04 => {
+                // The attribute byte is 0 for an exception tag.
+                if self.byte()? != 0 {
+                    return Err(self.err(ErrorKind::BadTagAttribute));
+                }
+                ImportDesc::Tag(self.type_index(types)?)
+            }
+            other => return Err(self.err(ErrorKind::BadImportKind(other))),
+        })
+    }
+}
+
+/// Reads an import descriptor from the front of `bytes`, which starts at offset
+/// `base` of the input. Returns the descriptor and the number of bytes it took.
+/// Used for the descriptors in module types, which sit inside component types.
+pub(crate) fn import_desc_prefix(
+    bytes: &[u8],
+    base: usize,
+    types: usize,
+) -> Result<(ImportDesc, usize), ParseError> {
+    let mut r = Reader::new(bytes, base);
+    let desc = r.import_desc(types)?;
+    Ok((desc, r.pos))
 }
 
 /// The order sections must appear in. Data count comes after element and
@@ -669,24 +713,7 @@ pub fn parse(bytes: &[u8]) -> Result<Module, ParseError> {
                 for _ in 0..n {
                     let module_name = s.name()?;
                     let name = s.name()?;
-                    let desc = match s.byte()? {
-                        0x00 => ImportDesc::Func(s.type_index(module.types.len())?),
-                        0x01 => {
-                            let elem = s.reftype()?;
-                            let limits = s.limits()?;
-                            ImportDesc::Table(TableType { elem, limits })
-                        }
-                        0x02 => ImportDesc::Memory(s.memory_limits()?),
-                        0x03 => ImportDesc::Global(s.global_type()?),
-                        0x04 => {
-                            // The attribute byte is 0 for an exception tag.
-                            if s.byte()? != 0 {
-                                return Err(s.err(ErrorKind::BadTagAttribute));
-                            }
-                            ImportDesc::Tag(s.type_index(module.types.len())?)
-                        }
-                        other => return Err(s.err(ErrorKind::BadImportKind(other))),
-                    };
+                    let desc = s.import_desc(module.types.len())?;
                     module.imports.push(Import {
                         module: module_name,
                         name,

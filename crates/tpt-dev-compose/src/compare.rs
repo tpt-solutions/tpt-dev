@@ -226,11 +226,18 @@ impl Resolver {
                     .collect(),
             },
             TypeDef::Instance(decls) => self.instance(decls, depth),
-            // Resources and component types are not followed.
+            // Resources, component types and the types without a comparison
+            // form (async functions, maps, fixed lists, streams, futures) are
+            // not followed, so the comparison gives no answer for them.
             TypeDef::Own(_)
             | TypeDef::Borrow(_)
             | TypeDef::Resource { .. }
-            | TypeDef::Component(_) => Ty::Unknown,
+            | TypeDef::Component(_)
+            | TypeDef::AsyncFunc(_)
+            | TypeDef::Map(..)
+            | TypeDef::FixedList(..)
+            | TypeDef::Stream(_)
+            | TypeDef::Future(_) => Ty::Unknown,
         }
     }
 
