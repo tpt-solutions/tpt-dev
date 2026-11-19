@@ -225,13 +225,13 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [ ] Example wrapping a stateful C library
 
 ### tpt-dev-lint: custom project-specific linting (no compiler plugins)
-- [ ] S
-- [ ] Rule definition API
-- [ ] Source analysis without rustc plugins (decided: standalone tool built on syn)
-- [ ] Rule configuration file
-- [ ] Output compatible with Clippy-style diagnostics, and CI exit codes
-- [ ] Ship a set of example rules
-- [ ] Document the limits of analysis without type information
+- [x] S — *0.1.0 publish deferred to Phase 7*
+- [x] Rule definition API — *`Rule` trait over `syn` syntax trees, with findings and severities (`lib.rs`)*
+- [x] Source analysis without rustc plugins (decided: standalone tool built on syn) — *syntactic analysis via `syn::visit`; no type information*
+- [x] Rule configuration file — *`rule = allow|warn|deny` lines (`config.rs`); unknown rule names are errors*
+- [x] Output compatible with Clippy-style diagnostics, and CI exit codes — *`severity[rule]: message` with location; exit 1 on deny, 2 on usage errors*
+- [x] Ship a set of example rules — *`no-unwrap`, `no-todo-macros`, `safety-comment`*
+- [x] Document the limits of analysis without type information — *README limits section*
 
 ### tpt-dev-dep: dependency graph analyzer
 - [x] S — *0.1.0 publish deferred to Phase 7*
