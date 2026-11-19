@@ -5,7 +5,7 @@
 //!
 //! The analysis is syntactic. It sees names and shapes, not types, so a rule
 //! can say that a method named `unwrap` is called, but not that its receiver
-//! is an `Option`. [`limits`] are documented in the README.
+//! is an `Option`. The limits are documented in the README.
 
 #![doc = include_str!("../README.md")]
 

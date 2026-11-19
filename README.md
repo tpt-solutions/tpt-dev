@@ -29,6 +29,10 @@ deny.toml           license policy (cargo-deny)
 rust-toolchain.toml pinned toolchain, with thumbv7em-none-eabihf target
 ```
 
+## Versioning
+
+All crates share one version. Before 1.0, minor releases may break the API, and patch releases may not. See [VERSIONING.md](VERSIONING.md). Crate status and open work are tracked in [todo.md](todo.md).
+
 ## Building and checking
 
 ```sh
