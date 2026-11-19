@@ -23,9 +23,11 @@ The `ensures` clause is proven, so it adds no check. A version with `ensures(res
 ## Supported subset
 
 - Integer types: `i8` to `i128`, `isize`, `u8` to `u128`, `usize`. Floats are not supported, because real arithmetic does not model rounding.
-- Expressions: integer and boolean literals, names, `+`, `-`, `*` where one side is constant, unary `-` and `!`, comparisons, `&&`, `||`, and parentheses.
+- Expressions: integer and boolean literals, names, `+`, `-`, `*` where one side is constant, unary `-` and `!`, comparisons, `&&`, `||`, parentheses, and `old(x)`.
+- `old(x)` in `ensures` is the value parameter `x` had on entry. The proof treats it as a fresh snapshot variable, equal to `x` before the body runs. The run-time check copies `x` into a snapshot before the body, so a body that reassigns a `mut` parameter is still checked against the entry value. `x` must be a parameter, and its type must be `Copy`. `old` in `requires` is a compile error.
 - Bodies: `let` statements and a final expression. Other statements, `return`, `if` and calls fall back to run-time checks.
 - `result` names the return value in `ensures`.
+- `old(x)` is allowed only for parameters of integer type, the same rule as every other clause.
 
 ## Limits
 
@@ -34,6 +36,7 @@ The `ensures` clause is proven, so it adds no check. A version with `ensures(res
 - **Only the function body is analysed.** Callers' arguments are not checked at compile time. That needs a whole-program pass, which is not written.
 - **Stacked contract attributes.** Use path-style attributes (`#[tpt_dev_contract::ensures(...)]`) when combining them. Each macro takes over the other contract attributes on the function, and path-style names avoid unused-import warnings.
 - **Early `return` skips `ensures`.** The return-value check wraps the body's final value only.
+- **`old()` needs a `Copy` parameter.** The run-time snapshot copies the parameter on entry. A non-`Copy` parameter used under `old` fails to compile in the generated code.
 - **Host only.** This is a proc-macro crate, so it cannot target `thumbv7em-none-eabihf`. CI excludes it from the bare-metal build.
 
 ## License

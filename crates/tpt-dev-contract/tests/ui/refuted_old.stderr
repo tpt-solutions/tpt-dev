@@ -1,0 +1,5 @@
+error: `ensures` clause `result == old(x)` is false: counterexample: x = 0
+ --> tests/ui/refuted_old.rs:5:29
+  |
+5 | #[tpt_dev_contract::ensures(result == old(x))]
+  |                             ^^^^^^

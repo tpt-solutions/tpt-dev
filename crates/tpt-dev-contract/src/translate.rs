@@ -1,9 +1,9 @@
 //! Translation of the supported Rust expression subset into solver terms.
 //!
 //! Supported: integer literals, `true` and `false`, names, unary `-` and `!`,
-//! binary `+`, `-`, `*` (one side constant), comparisons, `&&`, `||`, and
-//! parentheses. Anything else is reported as unsupported. The caller then
-//! falls back to a run-time check.
+//! binary `+`, `-`, `*` (one side constant), comparisons, `&&`, `||`, parentheses,
+//! and `old(x)` for a function parameter `x`. Anything else is reported as
+//! unsupported. The caller then falls back to a run-time check.
 
 use std::collections::HashMap;
 
@@ -24,6 +24,8 @@ pub(crate) type Failure = String;
 pub(crate) struct Translator<'a> {
     pub(crate) arena: &'a mut Arena,
     pub(crate) env: HashMap<String, Val>,
+    /// Entry snapshots for `old(x)`, keyed by parameter name. Empty outside `ensures`.
+    pub(crate) old: HashMap<String, Val>,
 }
 
 fn num(v: Val) -> Result<Linear, Failure> {
@@ -84,8 +86,26 @@ impl Translator<'_> {
                 }
             }
             Expr::Binary(b) => self.binary(&b.left, &b.op, &b.right),
+            Expr::Call(c) => self.old_call(c),
             _ => Err("unsupported expression".into()),
         }
+    }
+
+    /// Translates `old(x)`: the entry snapshot of parameter `x`.
+    fn old_call(&mut self, c: &syn::ExprCall) -> Result<Val, Failure> {
+        let is_old = matches!(&*c.func, Expr::Path(p) if p.path.is_ident("old"));
+        if !is_old {
+            return Err("unsupported call".into());
+        }
+        let name = match c.args.first() {
+            Some(Expr::Path(p)) if c.args.len() == 1 => p.path.get_ident().map(|i| i.to_string()),
+            _ => None,
+        }
+        .ok_or_else(|| String::from("`old` takes one parameter name"))?;
+        self.old
+            .get(&name)
+            .cloned()
+            .ok_or_else(|| format!("`old({name})` has no entry snapshot"))
     }
 
     fn binary(&mut self, left: &Expr, op: &BinOp, right: &Expr) -> Result<Val, Failure> {

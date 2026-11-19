@@ -66,12 +66,48 @@ fn no_integer_solution(x: i64) -> i64 {
     x
 }
 
+// `old(x)` is the entry value of `x`. Proven, since the solver equates the
+// snapshot with the parameter before the body runs.
+#[tpt_dev_contract::requires(x >= 0)]
+#[tpt_dev_contract::ensures(result == old(x) + 1)]
+fn succ_of_entry(x: i64) -> i64 {
+    let y = x + 1;
+    y
+}
+
+// The body reassigns `x`, so the proof does not apply. The run-time check must
+// compare against the entry value, not the reassigned one.
+#[tpt_dev_contract::ensures(result == old(x) + 1)]
+fn bump_in_place(mut x: i64) -> i64 {
+    x += 1;
+    x
+}
+
+// Wrong on purpose: the run-time `old(x)` check must reject it.
+#[tpt_dev_contract::ensures(result == old(x) + 2)]
+fn bump_wrong(mut x: i64) -> i64 {
+    x += 1;
+    x
+}
+
 #[test]
 fn proven_contracts_hold() {
     assert_eq!(plus_one(4), 5);
     assert_eq!(diff(2, 9), 7);
     assert_eq!(at_least_two(1), 2);
     assert_eq!(copy_nonneg(3), 3);
+    assert_eq!(succ_of_entry(6), 7);
+}
+
+#[test]
+fn old_uses_the_entry_value_at_run_time() {
+    assert_eq!(bump_in_place(4), 5);
+}
+
+#[test]
+#[should_panic(expected = "`ensures` clause violated: result == old(x) + 2")]
+fn old_is_checked_at_run_time() {
+    let _ = bump_wrong(4);
 }
 
 #[test]
