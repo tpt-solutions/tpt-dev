@@ -279,12 +279,12 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [x] Benchmarks on host with a realistic KV-cache workload — *`examples/kv_workload.rs` (decode, fork, close, eviction); host bookkeeping only*
 
 ### tpt-dev-dispatch: heterogeneous compute task scheduler
-- [ ] S
-- [ ] Device abstraction trait (CPU/NPU/GPU) with no vendor SDK dependency
-- [ ] Task graph and cost model
-- [ ] Scheduler routing tasks to devices
-- [ ] CPU reference backend
-- [ ] Mock accelerator backends for testing
+- [x] S — *0.1.0 publish deferred to Phase 7*
+- [x] Device abstraction trait (CPU/NPU/GPU) with no vendor SDK dependency — *`Device` trait with `Kind::{Cpu,Npu,Gpu}`; no GPU backend exists yet*
+- [x] Task graph and cost model — *`Graph` of vector ops with validation; per-device estimated cost from input size*
+- [x] Scheduler routing tasks to devices — *earliest-finish-time list scheduling; `schedule` and `execute`*
+- [x] CPU reference backend — *`CpuDevice` runs every operation*
+- [x] Mock accelerator backends for testing — *one `MockAccelerator` (NPU kind) that records calls; a second mock is not written*
 
 ### tpt-dev-pqc: pure-Rust post-quantum cryptography
 - [ ] S
