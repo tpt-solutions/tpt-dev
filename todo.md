@@ -182,11 +182,11 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [x] Fuzz round-trip tests — *property-based round trips via tpt-dev-test (not coverage-guided)*
 
 ### tpt-dev-dsl: domain-specific language framework
-- [ ] S
-- [ ] Grammar definition API
-- [ ] Parser generation built on tpt-dev-ast
-- [ ] Macro embedding (`dsl!{...}`) with good error spans
-- [ ] Example DSL as a reference
+- [x] S — *0.1.0 publish deferred to Phase 7*
+- [x] Grammar definition API — *`Grammar`, `Rule`, `Expr` (PEG), checked at compile time in a `const`*
+- [ ] Parser generation built on tpt-dev-ast — *not done: the ast crate's lexer is JSON-only; the DSL interprets its own grammars*
+- [ ] Macro embedding (`dsl!{...}`) with good error spans — *not done: needs a proc-macro crate*
+- [x] Example DSL as a reference — *arithmetic grammar in `tests/arith.rs`, described in the README*
 
 ### tpt-dev-codegen: build-time code generation
 - [x] S — *0.1.0 publish deferred to Phase 7*
