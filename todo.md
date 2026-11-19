@@ -208,13 +208,13 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 ## Phase 5: Layer 3 FFI & developer tooling (Groups 2, 4, 5)
 
 ### tpt-dev-headers: C-header generator
-- [ ] S
-- [ ] Parse Rust `extern "C"` items and `#[repr(C)]` types
-- [ ] Emit C headers with include guards and Doxygen comments from Rust docs
-- [ ] Enum/struct/callback/opaque-handle support
-- [ ] CLI and `build.rs` entry points
-- [ ] Golden-file tests vs hand-written headers
-- [ ] Compile generated headers with a C compiler in CI
+- [x] S — *0.1.0 publish deferred to Phase 7*
+- [x] Parse Rust `extern "C"` items and `#[repr(C)]` types — *`syn`-based; functions, repr(C) structs, integer enums, aliases, constants*
+- [x] Emit C headers with include guards and Doxygen comments from Rust docs — *include guard set by the caller; `/** */` blocks on items and fields*
+- [x] Enum/struct/callback/opaque-handle support — *opaque structs, function-pointer typedefs (`extern "C" fn`)*
+- [ ] CLI and `build.rs` entry points — *`generate(source, options)` is the entry point for build scripts; no CLI binary yet*
+- [x] Golden-file tests vs hand-written headers — *golden test against a generated-then-reviewed `api.h` (not hand-written); `BLESS=1` updates it*
+- [ ] Compile generated headers with a C compiler in CI — *not done: no C compiler is available here, and the CI job is not written*
 
 ### tpt-dev-ffi: zero-copy FFI state machine framework
 - [ ] S
