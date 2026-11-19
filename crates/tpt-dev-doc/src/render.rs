@@ -141,6 +141,48 @@ mod tests {
     }
 
     #[test]
+    fn the_static_page_has_no_script_or_network_reference() {
+        // Kept static on purpose: docs.rs can disable scripts. Every example
+        // mode is included, so the page covers every branch of the renderer.
+        let examples = extract(
+            "Text.\n\n```rust\nlet a = 1 < 2;\n```\n\n```rust,ignore\nb\n```\n\n\
+             ```rust,should_panic\nc\n```\n\n```toml\nname = \"x\"\n```\n",
+        );
+        let html = page("Hosted", &examples);
+        for banned in [
+            "<script",
+            "<iframe",
+            "<link",
+            "<img",
+            "<object",
+            "<embed",
+            "<base",
+            "<form",
+            "<svg",
+            "<meta http-equiv",
+            "src=",
+            "href=",
+            "action=",
+            "srcset",
+            "url(",
+            "@import",
+            "http",
+            "//",
+        ] {
+            assert!(!html.contains(banned), "found {banned:?} in the page");
+        }
+        // Event handler attributes such as onload="..." or onclick='...'.
+        let bytes = html.as_bytes();
+        for (at, _) in html.match_indices(" on") {
+            let name_end = bytes[at + 1..]
+                .iter()
+                .position(|b| !b.is_ascii_alphabetic())
+                .map_or(bytes.len(), |n| at + 1 + n);
+            assert_ne!(bytes.get(name_end), Some(&b'='), "event handler at {at}");
+        }
+    }
+
+    #[test]
     fn sections_record_the_mode_and_line() {
         let examples = extract("text\n\n```rust,ignore\nx\n```\n");
         let section = example_section(&examples[0]);
