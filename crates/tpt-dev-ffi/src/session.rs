@@ -5,6 +5,24 @@
 //! operation that is not allowed in the current state does not compile. A
 //! failed operation returns the session unchanged, with the error code.
 //! Dropping a session releases its resource unless it is already closed.
+//!
+//! # Ownership and borrow rules
+//!
+//! 1. The session owns the library object. It is destroyed exactly once, when
+//!    the session is dropped, in whatever state it is in.
+//! 2. Transitions take the session by value. A handle never outlives the
+//!    session that produced it, because [`Session::with`] and
+//!    [`Session::with_view`] borrow the session for the call.
+//! 3. Buffers passed to the library are borrowed for one call, through
+//!    [`Session::with`]. Nothing about them is kept after the call returns.
+//! 4. A zero-copy [`View`] of library memory exists only inside the closure
+//!    given to [`Session::with_view`]. The closure takes the view for any
+//!    lifetime (`for<'v>`), so the view cannot be stored or returned. The
+//!    session is borrowed mutably for the whole call, so no library call can
+//!    run while the view is alive.
+//! 5. [`Backend::view`] returns a slice tied to the backend borrow. The
+//!    implementer guarantees that the slice stays valid and unchanged for that
+//!    borrow.
 
 use core::marker::PhantomData;
 
@@ -29,6 +47,48 @@ pub trait Backend {
     fn close(&mut self, h: Self::Handle) -> Result<(), Code>;
     /// Frees the session object. Called once, from `Drop`.
     fn destroy(&mut self, h: Self::Handle);
+    /// Borrows the library's bytes for `h` without copying, if the library
+    /// exposes them. The default exposes none.
+    ///
+    /// The returned slice must stay valid and unchanged for the whole borrow
+    /// of `self`. The session guarantees that no other library call runs while
+    /// the borrow lives.
+    fn view(&mut self, _h: Self::Handle) -> Option<&[u8]> {
+        None
+    }
+}
+
+/// A read-only, zero-copy view of library memory.
+///
+/// A view can only be made inside the closure passed to
+/// [`Session::with_view`]. It cannot be stored, returned, or used after that
+/// call, and it cannot coexist with a library call on the same session. The
+/// compile-fail cases in `tests/ui/view_*.rs` check this.
+pub struct View<'v> {
+    bytes: &'v [u8],
+}
+
+impl View<'_> {
+    /// The viewed bytes. They are valid only inside the view's closure.
+    pub fn as_slice(&self) -> &[u8] {
+        self.bytes
+    }
+}
+
+impl core::ops::Deref for View<'_> {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        self.bytes
+    }
+}
+
+impl core::fmt::Debug for View<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("View")
+            .field("len", &self.bytes.len())
+            .finish()
+    }
 }
 
 /// State: created, not open.
@@ -180,6 +240,15 @@ impl<'b, B: Backend> Session<'b, B, Streaming> {
     /// Stops streaming, back to `Open`.
     pub fn stop(self) -> Result<Session<'b, B, Open>, Failed<Self>> {
         self.transition(|b, h| b.stop(h))
+    }
+
+    /// Gives `f` a zero-copy view of the library's bytes, if the backend exposes
+    /// any. The view borrows the session for the call, and `f` must not keep it.
+    /// Returns `None` when there is no object or no view.
+    pub fn with_view<R>(&mut self, f: impl for<'v> FnOnce(View<'v>) -> R) -> Option<R> {
+        let h = self.inner.handle?;
+        let bytes = self.inner.backend.view(h)?;
+        Some(f(View { bytes }))
     }
 }
 

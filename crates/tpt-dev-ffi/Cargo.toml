@@ -16,6 +16,9 @@ std = []
 
 [dev-dependencies]
 trybuild = "1"
+# Not in `workspace.dependencies`, so they are depended on by path.
+tpt-dev-headers = { path = "../tpt-dev-headers" }
+tpt-dev-automata = { path = "../tpt-dev-automata" }
 
 [lints]
 workspace = true

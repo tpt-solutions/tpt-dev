@@ -11,7 +11,7 @@ mod handle;
 mod session;
 
 pub use handle::Handle;
-pub use session::{Backend, Closed, Failed, Open, Session, Streaming};
+pub use session::{Backend, Closed, Failed, Open, Session, Streaming, View};
 
 /// A status code from the C side. Zero means success, as in most C APIs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

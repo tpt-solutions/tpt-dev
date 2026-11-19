@@ -1,0 +1,8 @@
+error: lifetime may not live long enough
+  --> tests/ui/view_escapes_session.rs:25:36
+   |
+25 |         streaming.with_view(|view| view).unwrap()
+   |                              ----- ^^^^ returning this value requires that `'1` must outlive `'2`
+   |                              |   |
+   |                              |   return type of closure is View<'2>
+   |                              has type `View<'1>`

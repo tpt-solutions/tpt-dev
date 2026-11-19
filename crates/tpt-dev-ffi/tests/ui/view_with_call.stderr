@@ -1,0 +1,24 @@
+error[E0499]: cannot borrow `streaming` as mutable more than once at a time
+  --> tests/ui/view_with_call.rs:24:13
+   |
+24 |       let _ = streaming.with_view(|view| {
+   |               ^         --------- ------ first mutable borrow occurs here
+   |               |         |
+   |  _____________|         first borrow later used by call
+   | |
+25 | |         let _ = streaming.with(|_, _| ());
+   | |                 --------- first borrow occurs due to use of `streaming` in closure
+26 | |         view.len()
+27 | |     });
+   | |______^ second mutable borrow occurs here
+
+error[E0499]: cannot borrow `streaming` as mutable more than once at a time
+  --> tests/ui/view_with_call.rs:24:33
+   |
+24 |     let _ = streaming.with_view(|view| {
+   |             --------- --------- ^^^^^^ second mutable borrow occurs here
+   |             |         |
+   |             |         first borrow later used by call
+   |             first mutable borrow occurs here
+25 |         let _ = streaming.with(|_, _| ());
+   |                 --------- second borrow occurs due to use of `streaming` in closure

@@ -1,0 +1,9 @@
+error[E0521]: borrowed data escapes outside of closure
+  --> tests/ui/view_escapes_call.rs:25:40
+   |
+24 |     let mut kept: Option<View<'_>> = None;
+   |         -------- `kept` declared here, outside of the closure body
+25 |     let _ = streaming.with_view(|view| kept = Some(view));
+   |                                  ----  ^^^^^^^^^^^^^^^^^ `view` escapes the closure body here
+   |                                  |
+   |                                  `view` is only valid in the closure body
