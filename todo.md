@@ -271,12 +271,12 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 ## Phase 6: AI/edge, security & hardware (Groups 6, 7, 9, 10)
 
 ### tpt-dev-paged: no_std paged memory manager for LLM KV-caches
-- [ ] S
-- [ ] Fixed-size page pool allocator over a caller-provided buffer
-- [ ] Per-sequence page tables
-- [ ] Allocation, free, copy-on-write and eviction policies
-- [ ] Fragmentation tests and metrics
-- [ ] Benchmarks on host with a realistic KV-cache workload
+- [x] S — *0.1.0 publish deferred to Phase 7*
+- [x] Fixed-size page pool allocator over a caller-provided buffer — *`Pager::new(storage, tokens_per_page, bytes_per_token)`; no heap*
+- [x] Per-sequence page tables — *fixed-size tables of up to MAXP pages per sequence*
+- [x] Allocation, free, copy-on-write and eviction policies — *`append`, `close`, `fork` with COW on write, LRU eviction of whole sequences*
+- [x] Fragmentation tests and metrics — *no external fragmentation with fixed pages; `internal_fragmentation` and `stats`*
+- [x] Benchmarks on host with a realistic KV-cache workload — *`examples/kv_workload.rs` (decode, fork, close, eviction); host bookkeeping only*
 
 ### tpt-dev-dispatch: heterogeneous compute task scheduler
 - [ ] S
