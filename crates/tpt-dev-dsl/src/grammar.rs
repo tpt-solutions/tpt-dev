@@ -53,13 +53,11 @@ impl Grammar {
     /// if a `Call` names a rule that does not exist.
     pub const fn new(rules: &'static [Rule]) -> Self {
         assert!(!rules.is_empty(), "a grammar needs at least one rule");
-        let g = Self { rules };
-        let mut i = 0;
-        while i < rules.len() {
-            check_calls(&rules[i].body, rules.len());
-            i += 1;
-        }
-        g
+        assert!(
+            validate(rules).is_ok(),
+            "a rule refers to a rule that does not exist"
+        );
+        Self { rules }
     }
 
     /// The rules, in order.
@@ -73,20 +71,56 @@ impl Grammar {
     }
 }
 
-const fn check_calls(e: &Expr, rules: usize) {
+/// Why a set of rules is not a grammar.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum GrammarError {
+    /// There are no rules.
+    Empty,
+    /// A `Call` in rule `rule` names a rule index that does not exist.
+    UnknownRule {
+        /// Index of the rule containing the bad call.
+        rule: usize,
+        /// The index the call names.
+        index: usize,
+    },
+}
+
+/// The validation shared by [`Grammar::new`] and the `dsl!` macro.
+pub(crate) const fn validate(rules: &[Rule]) -> Result<(), GrammarError> {
+    if rules.is_empty() {
+        return Err(GrammarError::Empty);
+    }
+    let mut i = 0;
+    while i < rules.len() {
+        if let Err(index) = check_calls(&rules[i].body, rules.len()) {
+            return Err(GrammarError::UnknownRule { rule: i, index });
+        }
+        i += 1;
+    }
+    Ok(())
+}
+
+/// `Err(index)` for the first call to a rule that does not exist.
+const fn check_calls(e: &Expr, rules: usize) -> Result<(), usize> {
     match e {
-        Expr::Lit(_) | Expr::Range(_, _) => {}
+        Expr::Lit(_) | Expr::Range(_, _) => Ok(()),
         Expr::Seq(items) | Expr::Choice(items) => {
             let mut i = 0;
             while i < items.len() {
-                check_calls(&items[i], rules);
+                if let Err(index) = check_calls(&items[i], rules) {
+                    return Err(index);
+                }
                 i += 1;
             }
+            Ok(())
         }
         Expr::Repeat(inner) | Expr::Optional(inner) => check_calls(inner, rules),
-        Expr::Call(index) => assert!(
-            *index < rules,
-            "a rule refers to a rule that does not exist"
-        ),
+        Expr::Call(index) => {
+            if *index < rules {
+                Ok(())
+            } else {
+                Err(*index)
+            }
+        }
     }
 }

@@ -1,0 +1,5 @@
+error: a grammar needs at least one rule
+ --> tests/ui/empty_grammar.rs:4:5
+  |
+4 |     G {
+  |     ^

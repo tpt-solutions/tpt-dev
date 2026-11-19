@@ -1,0 +1,5 @@
+error: expected `=`
+ --> tests/ui/bad_syntax.rs:5:15
+  |
+5 |         start "a";
+  |               ^^^

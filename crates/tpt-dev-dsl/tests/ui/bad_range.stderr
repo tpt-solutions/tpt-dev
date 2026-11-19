@@ -1,0 +1,5 @@
+error: range is empty: the start is after the end
+ --> tests/ui/bad_range.rs:5:18
+  |
+5 |         start = ['z'-'a'];
+  |                  ^^^

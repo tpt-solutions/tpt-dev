@@ -13,6 +13,15 @@ categories = ["no-std"]
 [features]
 default = []
 std = []
+# The `dsl!` macro. Host-only: it pulls in a proc-macro crate, so leave it off
+# for no_std targets.
+macros = ["dep:tpt-dev-dsl-macros"]
+
+[dependencies]
+tpt-dev-dsl-macros = { version = "0.0.0", path = "../tpt-dev-dsl-macros", optional = true }
+
+[dev-dependencies]
+trybuild = "1"
 
 [lints]
 workspace = true

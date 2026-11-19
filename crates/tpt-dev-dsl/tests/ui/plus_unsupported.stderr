@@ -1,0 +1,5 @@
+error: `+` is not supported; write `e e*` for one or more
+ --> tests/ui/plus_unsupported.rs:5:20
+  |
+5 |         start = "a"+;
+  |                    ^

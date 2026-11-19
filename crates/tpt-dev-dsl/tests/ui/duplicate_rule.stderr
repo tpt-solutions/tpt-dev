@@ -1,0 +1,5 @@
+error: rule `start` is defined more than once
+ --> tests/ui/duplicate_rule.rs:6:9
+  |
+6 |         start = "b";
+  |         ^^^^^

@@ -7,6 +7,8 @@ A framework for small languages. A grammar is a `const` value of parsing express
 - **Allocation-free recognition:** `recognise` checks input without building a tree.
 - **Useful errors:** a failure reports the furthest byte the parser reached, and what it was looking for there, as an `Expected` value.
 - **Bounded recursion:** rules nest at most `MAX_DEPTH` levels deep, so left recursion gives an error rather than a stack overflow.
+- **Packrat matching:** `parse_packrat` and `recognise_packrat` memoise each rule's result at each position, so backtracking does not repeat matching (except where the depth limit forces a recheck). They give the same results as `parse` and `recognise`. The memo table is a caller-chosen `Memo<N>`, so memory is fixed. If it fills, they return `MemoFull` and never a wrong answer.
+- **`dsl!` macro (feature `macros`):** writes a grammar in PEG notation, checked at compile time, with errors on the offending token. See [`tpt-dev-dsl-macros`](../tpt-dev-dsl-macros).
 
 ## Example
 
@@ -35,8 +37,8 @@ assert!(NUMBER.parse(0, b"20x4").is_err());
 
 ## Limits
 
-- **Not yet generated from text.** The grammar is written as Rust constants. A `dsl!{...}` macro that parses grammar text with good error spans needs a proc-macro crate, and that is not written.
-- **Not yet built on `tpt-dev-ast`.** The `ast` crate is a JSON-only lexer and grammar, so it cannot drive arbitrary grammars. The DSL interprets its own grammars.
+- **Two matchers.** `parse` and `recognise` use a plain interpreter, which has no memo and can take exponential time on some grammars. `parse_packrat` and `recognise_packrat` avoid that, at the cost of a memo table. Left recursion that branches is exponential for the interpreter, so use the packrat matcher for such grammars.
+- **Not built on `tpt-dev-ast`.** The `ast` crate is a JSON-only lexer and grammar, so it cannot drive arbitrary grammars. The DSL matches its own grammars.
 - **Error messages list one expectation.** The furthest failure is reported, with a single expected item, not every alternative that failed there.
 - **No semantic actions.** The parser returns the tree. Users walk it to build their own values.
 - **PEG semantics.** A `Choice` commits to its first success, and `Repeat` never backtracks into itself. Grammars need to be written with that in mind.
