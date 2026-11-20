@@ -1,0 +1,111 @@
+[package]
+name = "tpt-dev"
+description = "One dependency for the tpt-dev crates: feature groups re-export each crate as a module"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme = "README.md"
+categories = ["no-std"]
+
+# Every crate is optional and enabled by a feature group. The default build
+# enables nothing, so `tpt-dev` builds for thumbv7em-none-eabihf with no
+# dependencies beyond the core library.
+[features]
+default = []
+std = [
+    "tpt-dev-ast?/std",
+    "tpt-dev-async?/std",
+    "tpt-dev-automata?/std",
+    "tpt-dev-bench?/std",
+    "tpt-dev-codec?/std",
+    "tpt-dev-codegen?/std",
+    "tpt-dev-compose?/std",
+    "tpt-dev-dispatch?/std",
+    "tpt-dev-doc?/std",
+    "tpt-dev-dsl?/std",
+    "tpt-dev-ffi?/std",
+    "tpt-dev-fuzz?/std",
+    "tpt-dev-lock?/std",
+    "tpt-dev-mem?/std",
+    "tpt-dev-mock?/std",
+    "tpt-dev-paged?/std",
+    "tpt-dev-pqc?/std",
+    "tpt-dev-profiler?/std",
+    "tpt-dev-replay?/std",
+    "tpt-dev-sim?/std",
+    "tpt-dev-sink?/std",
+    "tpt-dev-solver?/std",
+    "tpt-dev-tee?/std",
+    "tpt-dev-test?/std",
+    "tpt-dev-trace?/std",
+    "tpt-dev-zk?/std",
+]
+
+# Feature groups. See README.md for which crate is in which group.
+verify = ["dep:tpt-dev-solver", "dep:tpt-dev-automata", "dep:tpt-dev-test", "dep:tpt-dev-fuzz", "dep:tpt-dev-mock"]
+contract = ["verify", "dep:tpt-dev-contract"]
+rt = ["dep:tpt-dev-async", "dep:tpt-dev-trace", "dep:tpt-dev-lock", "dep:tpt-dev-sink", "dep:tpt-dev-replay"]
+ffi = ["dep:tpt-dev-ffi", "dep:tpt-dev-codec", "dep:tpt-dev-compose"]
+security = ["dep:tpt-dev-pqc", "dep:tpt-dev-tee", "dep:tpt-dev-zk"]
+edge = ["dep:tpt-dev-mem", "dep:tpt-dev-paged", "dep:tpt-dev-dispatch", "dep:tpt-dev-sim", "dep:tpt-dev-profiler"]
+lang = ["dep:tpt-dev-ast", "dep:tpt-dev-dsl", "dep:tpt-dev-codegen"]
+bench = ["dep:tpt-dev-bench"]
+# Host-only tools. These use std and syn, so they are not for bare metal.
+tools = ["dep:tpt-dev-headers", "dep:tpt-dev-lint", "dep:tpt-dev-dep", "dep:tpt-dev-doc"]
+# Every no_std library group. Does not include `tools`.
+full = ["verify", "rt", "ffi", "security", "edge", "lang", "bench"]
+
+[dependencies]
+tpt-dev-ast = { version = "0.0.0", path = "../tpt-dev-ast", optional = true }
+tpt-dev-async = { version = "0.0.0", path = "../tpt-dev-async", optional = true }
+tpt-dev-automata = { version = "0.0.0", path = "../tpt-dev-automata", optional = true }
+tpt-dev-bench = { version = "0.0.0", path = "../tpt-dev-bench", optional = true }
+tpt-dev-codec = { version = "0.0.0", path = "../tpt-dev-codec", optional = true }
+tpt-dev-codegen = { version = "0.0.0", path = "../tpt-dev-codegen", optional = true }
+tpt-dev-compose = { version = "0.0.0", path = "../tpt-dev-compose", optional = true }
+tpt-dev-contract = { version = "0.0.0", path = "../tpt-dev-contract", optional = true }
+tpt-dev-dep = { version = "0.0.0", path = "../tpt-dev-dep", optional = true }
+tpt-dev-dispatch = { version = "0.0.0", path = "../tpt-dev-dispatch", optional = true }
+tpt-dev-doc = { version = "0.0.0", path = "../tpt-dev-doc", optional = true }
+tpt-dev-dsl = { version = "0.0.0", path = "../tpt-dev-dsl", optional = true }
+tpt-dev-ffi = { version = "0.0.0", path = "../tpt-dev-ffi", optional = true }
+tpt-dev-fuzz = { version = "0.0.0", path = "../tpt-dev-fuzz", optional = true }
+tpt-dev-headers = { version = "0.0.0", path = "../tpt-dev-headers", optional = true }
+tpt-dev-lint = { version = "0.0.0", path = "../tpt-dev-lint", optional = true }
+tpt-dev-lock = { version = "0.0.0", path = "../tpt-dev-lock", optional = true }
+tpt-dev-mem = { version = "0.0.0", path = "../tpt-dev-mem", optional = true }
+tpt-dev-mock = { version = "0.0.0", path = "../tpt-dev-mock", optional = true }
+tpt-dev-paged = { version = "0.0.0", path = "../tpt-dev-paged", optional = true }
+tpt-dev-pqc = { version = "0.0.0", path = "../tpt-dev-pqc", optional = true }
+tpt-dev-profiler = { version = "0.0.0", path = "../tpt-dev-profiler", optional = true }
+tpt-dev-replay = { version = "0.0.0", path = "../tpt-dev-replay", optional = true }
+tpt-dev-sim = { version = "0.0.0", path = "../tpt-dev-sim", optional = true }
+tpt-dev-sink = { version = "0.0.0", path = "../tpt-dev-sink", optional = true }
+tpt-dev-solver = { version = "0.0.0", path = "../tpt-dev-solver", optional = true }
+tpt-dev-tee = { version = "0.0.0", path = "../tpt-dev-tee", optional = true }
+tpt-dev-test = { version = "0.0.0", path = "../tpt-dev-test", optional = true }
+tpt-dev-trace = { version = "0.0.0", path = "../tpt-dev-trace", optional = true }
+tpt-dev-zk = { version = "0.0.0", path = "../tpt-dev-zk", optional = true }
+
+[lints]
+workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+
+# Cross-crate examples. Each needs the feature groups it uses, so `cargo run
+# --example NAME --features ...` is exact. See the README for the commands.
+[[example]]
+name = "verified_contract"
+required-features = ["contract", "verify"]
+
+[[example]]
+name = "fsm_ffi"
+required-features = ["verify", "ffi", "tools"]
+
+[[example]]
+name = "replay_trace"
+required-features = ["rt"]

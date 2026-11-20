@@ -1,0 +1,23 @@
+[package]
+name = "tpt-dev-cli"
+description = "cargo-tpt: one command for the tpt-dev project checks (lint, dep, headers, doc, bench gate)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme = "README.md"
+categories = ["development-tools::cargo-plugins"]
+
+# A host tool: it runs cargo and the other tpt-dev tools as subprocesses.
+# CI builds it for the host only.
+[[bin]]
+name = "cargo-tpt"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[package.metadata.docs.rs]
+all-features = true

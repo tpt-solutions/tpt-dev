@@ -1,0 +1,9 @@
+[package]
+name = "{{project-name}}"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+# Set the path to your checkout of tpt-dev until the crates are published.
+[dependencies]
+tpt-dev = { path = "../tpt-dev/crates/tpt-dev", features = ["contract", "verify"] }

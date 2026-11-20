@@ -1,0 +1,3 @@
+[template]
+cargo_generate_version = ">=0.18.0"
+description = "A library whose functions carry #[requires]/#[ensures] contracts, checked with tpt-dev's solver"

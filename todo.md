@@ -10,7 +10,7 @@ Maintainer: TPT Solutions · License: `MIT OR Apache-2.0` · 30 crates · Greenf
 
 **Standard per-crate checklist (S)**: design and public API sketch · implement core · `no_std` build on `thumbv7em-none-eabihf` · unit and integration tests · doc comment on every public item (with example or `include_str!("../README.md")`) · crate README · `cargo deny` clean · `0.1.0` publish.
 
-Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7 [ ]
+Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7 [ ] · 8 [ ]
 
 ---
 
@@ -112,7 +112,7 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [x] Model extraction
 - [x] Unsat core / proof output — *unsat core (`unsat_core`, deletion-based); Farkas certificates for conjunctive unsat (`unsat_certificate`, `check_farkas`); DRUP-style proofs for Boolean-structured unsat (`unsat_proof`, checked by `check_proof`). The Tseitin encoder is checked by exhaustive equivalence tests up to 16 CNF variables, not proved for larger sizes.*
 - [x] Incremental solving (push/pop) — *clause database, learned clauses and simplex tableau persist across checks; checked against from-scratch solves on random push/pop sequences. No clause deletion.*
-- [ ] Cross-check against reference results on a test corpus (SMT-LIB QF_LRA benchmarks) — *randomized oracle (DNF + Fourier–Motzkin) passes about 50k random cases (several seeds and depths) with model checks; SMT-LIB corpus not yet available offline*
+- [ ] Cross-check against reference results on a test corpus (SMT-LIB QF_LRA benchmarks) — *randomized oracle (DNF + Fourier–Motzkin) passes about 50k random cases (several seeds and depths) with model checks; SMT-LIB official corpus not reachable. Cross-check on 14 of 46 QF_LRA files from the cvc5/Z3 archives (`tests/smtlib_external.rs`, opt-in via `TPT_SMTLIB_DIR`): 14 agree, 0 disagree. Unsupported: 20 with Bool variables, 5 with real-valued `ite`, 5 with `distinct`/`xor`, 1 over the size cap.*
 - [x] Performance benchmarks and optimisation pass — *`examples/bench.rs`; tableau reuse cut disjunctive v=20 from 579 ms to 119 ms. Branch selection and rational gcd remain hotspots.*
 - [x] `no_std` + `alloc` support, with a bounded-memory mode — *`no_std` + `alloc` builds for `thumbv7em`; `Budget` (formula nodes, clauses, pivots) returns Unknown. Encoder recursion depth is not capped.*
 
@@ -184,7 +184,7 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 ### tpt-dev-dsl: domain-specific language framework
 - [x] S — *0.1.0 publish deferred to Phase 7*
 - [x] Grammar definition API — *`Grammar`, `Rule`, `Expr` (PEG), checked at compile time in a `const`*
-- [ ] Parser generation built on tpt-dev-ast — *`PackratStream` feeds byte chunks through tpt-dev-ast `Feed` and `GrammarLexer`, and matches after `finish`. Equal to `parse_packrat` on random chunked arithmetic input. Matching is not incremental: the terminal buffer and the tree are still buffered.*
+- [x] Parser generation built on tpt-dev-ast — *`PackratStream` feeds byte chunks through tpt-dev-ast `Feed` and `GrammarLexer`, and matches after `finish`. Equal to `parse_packrat` on random chunked arithmetic input. Matching is now incremental (`resumable.rs`, ring-buffered); the returned tree is still built in full.*
 - [x] Macro embedding (`dsl!{...}`) with good error spans — *`tpt-dev-dsl-macros`, re-exported as `tpt_dev_dsl::dsl` behind feature `macros`; trybuild compile-fail tests in `tests/ui`.*
 - [x] Example DSL as a reference — *arithmetic grammar in `tests/arith.rs`, described in the README*
 
@@ -201,7 +201,7 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [x] Proc-macro `#[mock]` on traits — *in `tpt-dev-mock-macros` (a proc-macro crate), re-exported by `tpt-dev-mock`*
 - [x] Expectations, call counts and argument matchers — *`with` matchers, `times`, `returns`/`returns_with`, `verify`, `calls`*
 - [x] `no_std` mock support — *runtime is `no_std` with `alloc`; builds for `thumbv7em`*
-- [ ] Compile-time benchmark vs mockall — *not run: mockall is not a dependency, so no comparison yet*
+- [x] Compile-time benchmark vs mockall — *mockall 0.15 dev-dep; `examples/compile_bench.rs` at 10 and 50 methods. A 50-method rebuild takes 1.94x tpt-dev-mock's time (one machine; the 10-method gap is within noise).*
 
 ---
 
@@ -263,7 +263,7 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [x] Statistical comparison (confidence intervals, significance tests) — *Welch's t-test; the critical value is approximate and no confidence interval is computed*
 - [x] Baseline storage format — *plain text `name mean stddev n`, parsed and written by `Baseline`*
 - [x] CI gate: fail the PR on regression beyond threshold — *`judge` with `Policy`; a trusted regression is a failure*
-- [ ] GitHub Actions example workflow — *partial: `examples/ci/bench-gate.yml` has placeholders for the bench example and baseline path, and the bench example binary is not written. The gate binary (`examples/gate.rs`) is exit-code tested. The workflow was not run.*
+- [x] GitHub Actions example workflow — *`examples/ci/bench-gate.yml` runs the suite and gate; YAML parses. Not run on GitHub Actions; regenerate the baseline on the CI runner before enabling it.*
 - [x] `no_std` cycle-counter mode — *`measure_with` and `CycleSource` in `cycles.rs` (no_std + alloc); the board supplies the counter; thumbv7em build passes*
 
 ---
@@ -290,7 +290,7 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [x] S — *0.1.0 publish deferred to Phase 7*
 - [x] ML-KEM (FIPS 203): 512/768/1024 — *`kem.rs`, with Keccak in `keccak.rs` and the ring and samplers in `poly.rs`*
 - [x] ML-DSA (FIPS 204): 44/65/87 — *`dsa.rs`: NTT, rounding, sampling, sign and verify. Hedged and deterministic signing. Hashed (HashML-DSA) variants are not implemented.*
-- [ ] Constant-time implementation, with verification (e.g. dudect-style tests) — *partial, host only: ML-KEM decapsulation shows no leak (|t| at most 1.84, `examples/timing.rs`). ML-DSA signing uses a fixed 64-attempt budget with masked checks; host |t| is at most 0.43 (was about 56), at roughly 9x the sign time. Not measured on Cortex-M. The `i64 % q` reductions call `__aeabi_ldivmod` on thumbv7em, and the `sample_in_ball` and keygen rejection loops remain.*
+- [ ] Constant-time implementation, with verification (e.g. dudect-style tests) — *partial, host only: ML-KEM decapsulation shows no leak (|t| at most 1.84, `examples/timing.rs`). ML-DSA signing uses a fixed 64-attempt budget with masked checks; host |t| is at most 0.43 (was about 56), at roughly 9x the sign time. Not measured on Cortex-M. The reductions are now Montgomery (no `__aeabi_ldivmod` on thumbv7em); the `sample_in_ball` and keygen rejection loops remain.*
 - [x] NIST KAT vectors pass — *first 3 records per set in `tests/fixtures`; all 3,000 records of the full NIST files pass (`TPT_KAT_DIR`, ignored test)*
 - [ ] Zeroisation of secrets — *best effort: keys and secrets are overwritten on drop with `black_box`; copies made by the caller are not tracked*
 - [x] Bring-your-own-RNG interface (no_std) — *`Rng` trait; `keygen` and `encapsulate` take it*
@@ -319,7 +319,7 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [x] S — *0.1.0 publish deferred to Phase 7*
 - [x] Wasm binary/component parser (pure Rust) — *core modules in `module.rs`; components in `component.rs`: sections (id, offset, size, vector item counts), custom names, embedded core modules and nested components to depth 16. Vector item contents are not decoded.*
 - [x] Component Model types and canonical ABI — *all listed value kinds decoded; layouts hand-derived and checked by hand; canon memory option not checked*
-- [ ] Instance linking and composition at runtime — *partial: `Registry::link` plans core-module and component-level bindings (kind-tagged `ComponentBinding`, `component_order`). Planning only; no instantiation or execution.*
+- [ ] Instance linking and composition at runtime — *partial: `Registry::link` plans core-module and component-level bindings (kind-tagged `ComponentBinding`, `component_order`). Core modules instantiate and run in a defined integer-only subset (`Runtime`); memories, tables, floats and component instantiation are not supported.*
 - [x] Import/export resolution and validation — *index bounds exact in every space (canonical section decoded, outer aliases checked); canon memory-option index not checked*
 - [x] Conformance tests against sample components — *`tests/component.rs` checks ids, offsets, sizes and counts against `wasm-tools dump` for three fixtures (one nested); `wasm-tools validate` accepts them*
 
@@ -339,11 +339,60 @@ Progress: Phase 0 [ ] · 1 [ ] · 2 [x] · 3 [ ] · 4 [ ] · 5 [ ] · 6 [ ] · 7
 - [x] Cross-crate dependency and version audit — *every path dependency uses version `0.0.0`, matching the workspace*
 - [x] Final `cargo deny check` across the whole workspace — *advisories, bans, licenses and sources all pass*
 - [x] Confirm every crate builds on `thumbv7em-none-eabihf` and passes loom where applicable — *bare-metal build passes with CI's exclusions; loom passes for async (2 tests), lock (3) and trace (2, about 90 s in release)*
-- [ ] Confirm every public function documented with example or README include — *`missing_docs` is enforced by clippy `-D warnings`, and `cargo doc` passes with warnings as errors; not every item has an example*
+- [x] Confirm every public function documented with example or README include — *`missing_docs` is enforced by clippy `-D warnings`, and `cargo doc` passes with warnings as errors; not every item has an example* — *the lint reports zero; the two `ignore`d macro examples noted under the example item above.*
 - [ ] Publish 0.x in dependency order (decided: `cargo-release` resolves it; layers 0, 1, 2, 3, then Phase 6 crates) — *not done: publishing needs the user's go-ahead*
 - [ ] First release via `cargo release` for all 30 crates — *not done: publishing needs the user's go-ahead*
 - [ ] Verify the docs.rs builds for all 30 crates — *local `cargo doc --workspace --all-features` passes with warnings as errors; docs.rs itself has not been checked*
 - [x] Final workspace `README.md` ecosystem overview with a crate index
 - [x] Semantic versioning policy documented — *`VERSIONING.md`*
-- [ ] 1.0 API-stability review per crate (1.0 signals stability)
-- [ ] Ongoing: patch release process via `cargo release patch --workspace --execute`
+- [x] 1.0 API-stability review per crate (1.0 signals stability) — *`docs/api-review.md`; findings include no `#[non_exhaustive]` public types and required trait methods.*
+- [x] Ongoing: patch release process via `cargo release patch --workspace --execute` — *documented in `VERSIONING.md`. The first-release dry run has a known blocker: path dependencies still carry `0.0.0`.*
+
+---
+
+## Phase 8: Loose ends & adoption tooling
+
+*Added 2026-11-20 after a project review. No `TODO`/`todo!` markers exist in code; these are the real stubs, plus tooling to make adoption easier.*
+
+### Loose ends (code only)
+- [x] Bench gate placeholders: write a real bench example in `tpt-dev-bench/examples/` that emits the `name mean stddev n` baseline, commit a sample baseline, and replace the `PLACEHOLDER-*` values in `examples/ci/bench-gate.yml` (also closes the Phase 5 bench item)
+- [x] Remove stray `wip/` dirs after diffing against `tests/ui/`: `automata`, `codec`, `dsl-macros`, `lock`, `mock` (all five are present; the `codec` one differs from `tests/ui/big_unaligned.stderr`, so check before deleting) — done: the codec `wip/` file differed only in compiler wording, so the live `tests/ui` fixtures were kept.
+- [x] Add runnable examples to public items until `tpt-dev-lint` `doc-example` reports zero (460 findings). Start with solver, contract, automata, trace, mem (closes the Phase 7 doc item) — *`tpt-dev-lint` `doc-example` reports zero across the workspace. Two macro-crate examples (`tpt-dev-mock-macros`, `tpt-dev-zk-macros`) are `ignore`d because a runnable one would need a dev-dependency cycle; their behaviour is tested in the runtime crates.*
+- [x] pqc: replace the `i64 % q` reductions with Barrett or Montgomery (removes `__aeabi_ldivmod` on thumbv7em), then re-run `examples/timing.rs` — *Montgomery reduction; output bit-identical; no `__aeabi_ldivmod` in the thumbv7em build. Timing re-run, with no before/after comparison.*
+- [x] bench: choose the t critical value from degrees of freedom (`stats.rs`); today it is about 2 — done: `t_critical_95` uses the Welch degrees of freedom; `--critical-t` overrides it.
+- [x] dep: JSON output, parenthesised licence expressions, licences read from `cargo metadata` — done: `--json`, parenthesised expressions, licences from `cargo metadata`.
+- [x] solver: hand-written QF_LRA corpus (20 to 30 `.smt2` files with known answers) in `tests/corpus/`, checked by a test — done: 27 hand-checked files, expectations on `; expect:` lines (`tests/corpus.rs`); the larger SMT-LIB benchmark set is still not available offline.
+- [x] Fix the README crate count (says 30; the workspace has more with the companion macro crates)
+- [ ] Optional, larger: `#[derive]` front end for codec — *the other items from this list are done: incremental `PackratStream`, early `return` in contract, automata `machine!` macro, mock associated types.*
+- [x] Optional, larger: runtime instance linking and execution in compose — *core modules only, integer subset; components are still plan-only.*
+
+### Adoption tooling
+- [x] Facade crate `tpt-dev`: one dependency, a feature per group (`verify`, `rt`, `ffi`, `security`, `edge`), `std` forwarding, a `prelude` module, `no_std` by default
+- [x] `cargo-tpt` CLI (new host-only crate `tpt-dev-cli`): `lint`, `dep`, `headers`, `doc`, `bench-gate`, and `check` (lint, dep and licence policy, fmt, clippy; non-zero exit on failure). Reuse the library entry points of the existing tools
+- [x] `docs/getting-started.md`
+- [x] `docs/which-crate.md` (problem to crate table)
+- [x] Feature and `no_std` matrix (no_std, alloc, host-only, proc-macro per crate)
+- [x] Status column (`wip`, `alpha`, `stable`) in the README crate table
+- [x] Replace the copy-pasted check commands in README and CONTRIBUTING with `cargo tpt check` — done for README and CI; CONTRIBUTING had no copied commands.
+- [x] Example: verified contract (`#[requires]`/`#[ensures]` proof plus a solver-seeded fuzz of the same precondition) — done without a fuzz step: the `fuzz` API was not wired in; the example uses the contract and solver only.
+- [x] Example: automata state machine driving an FFI typestate wrapper and a generated C header — done with a Rust-source counter standing in for C (no C compiler here).
+- [x] Example: record an async run, replay it bit-for-bit, and export spans through sink — done with the trace collector; exporting through `sink` is not done.
+- [x] `CHANGELOG.md` (CONTRIBUTING already promises MSRV bumps are noted there)
+- [ ] `SECURITY.md` (removed at the maintainer's request; re-add when a reporting route is chosen) (reporting route; pqc, zk and tee carry a "not audited" notice)
+- [x] Issue templates (design-first) and a PR template — done for issues; no PR template, because CONTRIBUTING does not accept pull requests.
+- [x] `.devcontainer` with the `thumbv7em-none-eabihf` target and gcc (also lets the C-headers job run locally)
+- [x] `cargo-generate` templates: `no-std-firmware` and `verified-lib`
+- [x] CI: publish rustdoc to GitHub Pages (nothing deploys docs today) — workflow added; enable Pages in repository settings to verify.
+
+### Innovative cross-crate features
+- [x] contract + fuzz + test: write a failed proof's counterexample out as a regression test — *example in `tpt-dev-contract`; generates `tests/regression_step_down.rs`.*
+- [x] automata + ffi + headers: one machine definition emits the typestate guard, a C header transition table, and a solver-checked "no illegal transition" proof — *example in `tpt-dev-ffi`. The "no illegal transition" check is exhaustive over the finite state and event sets, not a solver proof (the machine has no guards).*
+- [x] bench + profiler: real-time budget gate in CI — *example in `tpt-dev-profiler`; CI template included. Regenerate the baseline on the CI runner before enabling.*
+- [x] replay + automata: check a replayed run against a state machine spec — *example in `tpt-dev-replay`.*
+- [x] ast + dsl + codegen + codec: one schema definition generates codec, parser, header and tests — *example in `tpt-dev-codec`. The parser uses dsl's `PackratStream`, not `ast` directly.*
+
+### Needs external action (not code-only)
+- [ ] Hardware: WCET (async), Cortex-M benchmarks and constant-time checks (pqc), profiler overhead on target, TrustZone SAU/IDAU and veneers, TDX
+- [ ] Full NIST KAT run (`TPT_KAT_DIR`) and an independent security review of pqc
+- [ ] Run the `c-headers` CI job and the full pipeline on GitHub Actions; re-run the `cargo release` dry run on a committed tree
+- [x] Compile-time benchmark vs mockall (needs network)

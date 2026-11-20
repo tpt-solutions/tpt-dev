@@ -1,0 +1,13 @@
+{
+  "name": "tpt-dev",
+  "image": "mcr.microsoft.com/devcontainers/rust:1",
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {}
+  },
+  "postCreateCommand": "rustup target add thumbv7em-none-eabihf && sudo apt-get update && sudo apt-get install -y gcc && cargo install --locked cargo-deny",
+  "customizations": {
+    "vscode": {
+      "extensions": ["rust-lang.rust-analyzer", "tamasfe.even-better-toml"]
+    }
+  }
+}

@@ -43,9 +43,9 @@ jobs:
       # Library builds only. Test harnesses need std, which the bare-metal
       # target does not have, so `cargo test --target thumbv7em...` cannot work.
       # tpt-dev-contract, tpt-dev-mock-macros, tpt-dev-zk-macros and tpt-dev-dsl-macros are proc-macro crates; tpt-dev-dep, tpt-dev-headers and tpt-dev-lint are std host tools.
-      # All seven run on the host only.
+      # tpt-dev-cli is a host tool too (cargo-tpt), so it is excluded as well.
       - name: Build workspace for bare metal
-        run: cargo build --workspace --exclude tpt-dev-contract --exclude tpt-dev-mock-macros --exclude tpt-dev-zk-macros --exclude tpt-dev-dsl-macros --exclude tpt-dev-dep --exclude tpt-dev-headers --exclude tpt-dev-lint --target thumbv7em-none-eabihf
+        run: cargo build --workspace --exclude tpt-dev-contract --exclude tpt-dev-mock-macros --exclude tpt-dev-zk-macros --exclude tpt-dev-dsl-macros --exclude tpt-dev-dep --exclude tpt-dev-headers --exclude tpt-dev-lint --exclude tpt-dev-cli --target thumbv7em-none-eabihf
 
   # Loom concurrency tests for the Group 3 crates that have them. tpt-dev-mem
   # has no concurrent code, so it has no loom tests. Release mode keeps the
@@ -83,3 +83,14 @@ jobs:
         run: |
           gcc -std=c99 -Wall -Werror -I target/c-headers \
             -c crates/tpt-dev-headers/tests/c/client.c -o target/c-headers/client.o
+
+  # The project checks in one command: fmt, clippy, the project lint rules and
+  # the dependency policy. See crates/tpt-dev-cli. The fmt and clippy steps
+  # repeat the fmt-lint job; that duplication keeps this job self-contained.
+  project-checks:
+    name: cargo tpt check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run cargo tpt check
+        run: cargo run -q -p tpt-dev-cli --bin cargo-tpt -- check
