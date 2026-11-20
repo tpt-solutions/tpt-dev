@@ -29,6 +29,15 @@ pub struct Collector<const N: usize> {
 
 impl<const N: usize> Collector<N> {
     /// Creates an empty collector.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_trace::{Collector, Sink};
+    ///
+    /// let c: Collector<4> = Collector::new();
+    /// assert!(c.is_empty());
+    /// ```
     #[cfg(not(loom))]
     pub const fn new() -> Self {
         Self {
@@ -37,6 +46,15 @@ impl<const N: usize> Collector<N> {
     }
 
     /// Creates an empty collector.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_trace::{Collector, Sink};
+    ///
+    /// let c: Collector<4> = Collector::new();
+    /// assert!(c.is_empty());
+    /// ```
     #[cfg(loom)]
     pub fn new() -> Self {
         Self {
@@ -45,22 +63,66 @@ impl<const N: usize> Collector<N> {
     }
 
     /// Adds a record. Drops the oldest record if the ring is full.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_trace::{Collector, Kind, Record};
+    ///
+    /// let c: Collector<4> = Collector::new();
+    /// c.record(Record { kind: Kind::Event, name: "tick", ..Record::EMPTY });
+    /// assert_eq!(c.len(), 1);
+    /// ```
     pub fn record(&self, record: Record) {
         self.ring
             .lock_with(Token::root(), |ring, _| ring.push(record));
     }
 
     /// Number of records waiting to be exported.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_trace::{Collector, Kind, Record};
+    ///
+    /// let c: Collector<4> = Collector::new();
+    /// assert_eq!(c.len(), 0);
+    /// c.record(Record { kind: Kind::Event, name: "tick", ..Record::EMPTY });
+    /// assert_eq!(c.len(), 1);
+    /// ```
     pub fn len(&self) -> usize {
         self.ring.lock_with(Token::root(), |ring, _| ring.len())
     }
 
     /// Returns `true` when there is nothing to export.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_trace::Collector;
+    ///
+    /// let c: Collector<4> = Collector::new();
+    /// assert!(c.is_empty());
+    /// ```
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
     /// Number of records lost to overwriting so far.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_trace::{Collector, Kind, Record};
+    ///
+    /// let c: Collector<2> = Collector::new();
+    /// let r = Record { kind: Kind::Event, name: "tick", ..Record::EMPTY };
+    /// for _ in 0..3 {
+    ///     c.record(r);
+    /// }
+    /// assert_eq!(c.len(), 2);
+    /// assert_eq!(c.dropped(), 1);
+    /// ```
     pub fn dropped(&self) -> u64 {
         self.ring.lock_with(Token::root(), |ring, _| ring.dropped())
     }
@@ -69,6 +131,28 @@ impl<const N: usize> Collector<N> {
     ///
     /// Records are taken from the ring in batches. The lock is not held
     /// while `sink` runs, so recording can continue during the export.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_trace::{Collector, Kind, Record, Sink};
+    ///
+    /// struct Keep(Vec<Record>);
+    /// impl Sink for Keep {
+    ///     fn export(&mut self, records: &[Record]) {
+    ///         self.0.extend_from_slice(records);
+    ///     }
+    /// }
+    ///
+    /// let c: Collector<4> = Collector::new();
+    /// c.record(Record { kind: Kind::Event, name: "a", ..Record::EMPTY });
+    /// c.record(Record { kind: Kind::Event, name: "b", ..Record::EMPTY });
+    /// let mut keep = Keep(Vec::new());
+    /// c.flush(&mut keep);
+    /// assert_eq!(keep.0.len(), 2);
+    /// assert_eq!(keep.0[0].name, "a");
+    /// assert!(c.is_empty());
+    /// ```
     pub fn flush<S: Sink>(&self, sink: &mut S) {
         let mut batch = [Record::EMPTY; BATCH];
         loop {

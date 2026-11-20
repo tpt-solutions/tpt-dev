@@ -67,6 +67,20 @@ fn output_size(task: &Task, sizes: &[usize]) -> usize {
 /// Tasks are taken in topological order. Each goes to the device that finishes
 /// it soonest, given the device's cost estimate, the time it becomes free, and
 /// the time its inputs are ready. Ties go to the lower device index.
+///
+/// # Examples
+///
+/// ```
+/// use tpt_dev_dispatch::{CpuDevice, Device, Graph, Op, schedule};
+///
+/// let mut graph = Graph::new();
+/// let x = graph.constant(Op::Add, vec![vec![1.0, 2.0], vec![3.0, 4.0]]);
+/// graph.node(Op::Relu, &[x]);
+///
+/// let devices: Vec<Box<dyn Device>> = vec![Box::new(CpuDevice::default())];
+/// let plan = schedule(&graph, &devices).unwrap();
+/// assert_eq!(plan.assignments.len(), 2);
+/// ```
 pub fn schedule(graph: &Graph, devices: &[Box<dyn Device>]) -> Result<Schedule, ScheduleError> {
     let order = graph.order().map_err(ScheduleError::Graph)?;
     let n = graph.tasks.len();
@@ -114,6 +128,21 @@ pub fn schedule(graph: &Graph, devices: &[Box<dyn Device>]) -> Result<Schedule, 
 /// Runs a schedule on the devices it was planned for, and returns each task's result.
 ///
 /// Results are indexed by task id. Constant tasks take their data from the graph.
+///
+/// # Examples
+///
+/// ```
+/// use tpt_dev_dispatch::{CpuDevice, Device, Graph, Op, execute, schedule};
+///
+/// let mut graph = Graph::new();
+/// let x = graph.constant(Op::Add, vec![vec![1.0, 2.0], vec![10.0, 20.0]]);
+/// let y = graph.node(Op::Relu, &[x]);
+///
+/// let mut devices: Vec<Box<dyn Device>> = vec![Box::new(CpuDevice::default())];
+/// let plan = schedule(&graph, &devices).unwrap();
+/// let results = execute(&graph, &plan, &mut devices).unwrap();
+/// assert_eq!(results[y.0], vec![11.0, 22.0]);
+/// ```
 pub fn execute(
     graph: &Graph,
     plan: &Schedule,

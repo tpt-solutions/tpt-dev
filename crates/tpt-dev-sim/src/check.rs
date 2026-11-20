@@ -21,6 +21,23 @@ pub struct Deadline {
 
 impl Deadline {
     /// Checks that `response` follows each rising edge of `trigger` within `within` cycles.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_sim::{Component, Deadline, Kernel};
+    ///
+    /// let mut k: Kernel<2> = Kernel::new();
+    /// let trigger = k.signal("trigger", 1, 0).unwrap();
+    /// let response = k.signal("response", 1, 0).unwrap();
+    /// let mut deadline = Deadline::new(trigger, response, 2);
+    /// // The trigger rises and no response follows, so the deadline passes at cycle 2.
+    /// k.poke(trigger, 1);
+    /// for _ in 0..3 {
+    ///     k.step(&mut [&mut deadline]);
+    /// }
+    /// assert_eq!(k.failures(), 1);
+    /// ```
     pub const fn new(trigger: SignalId, response: SignalId, within: u64) -> Self {
         Self {
             trigger,
@@ -64,6 +81,24 @@ pub struct MinGap {
 
 impl MinGap {
     /// Checks that rising edges of `signal` are at least `gap` cycles apart.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_sim::{Component, Kernel, MinGap};
+    ///
+    /// let mut k: Kernel<1> = Kernel::new();
+    /// let pulse = k.signal("pulse", 1, 0).unwrap();
+    /// let mut check = MinGap::new(pulse, 3);
+    /// // Rising edges at cycles 0 and 2 are only two apart, which is under the gap of three.
+    /// k.poke(pulse, 1);
+    /// k.step(&mut [&mut check]);
+    /// k.poke(pulse, 0);
+    /// k.step(&mut [&mut check]);
+    /// k.poke(pulse, 1);
+    /// k.step(&mut [&mut check]);
+    /// assert_eq!(k.failures(), 1);
+    /// ```
     pub const fn new(signal: SignalId, gap: u64) -> Self {
         Self {
             signal,

@@ -8,6 +8,7 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 readme = "README.md"
+keywords = ["peg", "grammar", "proc-macro", "dsl"]
 categories = ["development-tools", "parser-implementations"]
 
 # A proc-macro crate runs on the host, so it cannot target no_std bare metal.

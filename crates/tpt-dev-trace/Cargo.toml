@@ -8,7 +8,8 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 readme = "README.md"
-categories = ["no-std"]
+keywords = ["tracing", "telemetry", "embedded", "observability"]
+categories = ["development-tools::debugging", "development-tools::profiling", "embedded", "no-std", "no-std::no-alloc"]
 
 [features]
 default = []

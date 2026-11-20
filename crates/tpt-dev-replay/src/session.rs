@@ -55,6 +55,16 @@ pub struct Session<const N: usize> {
 
 impl<const N: usize> Session<N> {
     /// Records a new run. The seed determines the inputs and the interrupts.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_replay::Session;
+    ///
+    /// let mut session: Session<8> = Session::recording(42);
+    /// session.input(0).unwrap();
+    /// assert_eq!(session.log().len(), 1);
+    /// ```
     pub const fn recording(seed: u64) -> Self {
         Self {
             log: Log::new(),
@@ -71,6 +81,19 @@ impl<const N: usize> Session<N> {
     }
 
     /// Replays a recorded run. The program must ask for the same inputs in the same order.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_replay::Session;
+    ///
+    /// let mut recording: Session<8> = Session::recording(7);
+    /// let original = recording.input(3).unwrap();
+    ///
+    /// // A replay takes the recorded log and returns the same input values.
+    /// let mut replay: Session<8> = Session::replaying(*recording.log());
+    /// assert_eq!(replay.input(3).unwrap(), original);
+    /// ```
     pub const fn replaying(script: Log<N>) -> Self {
         Self {
             log: Log::new(),
@@ -82,16 +105,55 @@ impl<const N: usize> Session<N> {
     }
 
     /// Chance, in thousandths, that the driver fires an interrupt before a step (recording only).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_replay::Session;
+    ///
+    /// let mut session: Session<8> = Session::recording(1);
+    /// // Values above 1000 are clamped. The setting affects interrupts in `step`, not inputs.
+    /// session.set_interrupt_permille(5000);
+    /// session.input(0).unwrap();
+    /// assert_eq!(session.log().len(), 1);
+    /// ```
     pub fn set_interrupt_permille(&mut self, permille: u32) {
         self.interrupt_permille = permille.min(1000);
     }
 
     /// The events so far. A replay produces the same log as the recording it followed.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_replay::Session;
+    ///
+    /// let mut session: Session<8> = Session::recording(1);
+    /// assert!(session.log().is_empty());
+    /// session.input(0).unwrap();
+    /// assert_eq!(session.log().len(), 1);
+    /// ```
     pub fn log(&self) -> &Log<N> {
         &self.log
     }
 
     /// Reads input `channel`. A recording draws a fresh value. A replay returns the logged one.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_replay::Session;
+    ///
+    /// let mut recording: Session<4> = Session::recording(9);
+    /// let value = recording.input(1).unwrap();
+    ///
+    /// let mut replay: Session<4> = Session::replaying(*recording.log());
+    /// assert_eq!(replay.input(1).unwrap(), value);
+    ///
+    /// // A fresh replay that asks for a different channel diverges.
+    /// let mut other: Session<4> = Session::replaying(*recording.log());
+    /// assert!(other.input(2).is_err());
+    /// ```
     pub fn input(&mut self, channel: u8) -> Result<u64, Divergence> {
         let value = match self.script {
             None => self.next_rng(),
@@ -220,6 +282,24 @@ fn nth_set_bit(mask: u32, n: u32) -> usize {
 /// In a replay, the decisions come from the log, and a mismatch is a [`Divergence`].
 /// A recording makes its own choices and logs them. Tasks must not hold a
 /// borrow of the session across a poll, because the driver borrows it too.
+///
+/// # Examples
+///
+/// ```
+/// use core::cell::RefCell;
+/// use core::pin::pin;
+/// use tpt_dev_async::Executor;
+/// use tpt_dev_replay::{Progress, Session, step};
+///
+/// let session: RefCell<Session<16>> = RefCell::new(Session::recording(3));
+/// let mut exec = pin!(Executor::<1>::new());
+/// let task = pin!(async {});
+/// exec.as_mut().spawn(task, 1).unwrap();
+///
+/// // One ready task: the driver polls it, and it finishes at once.
+/// let progress = step(&session, exec.as_mut());
+/// assert_eq!(progress, Ok(Progress::Polled { slot: 0, finished: true }));
+/// ```
 pub fn step<const N: usize, const S: usize>(
     session: &RefCell<Session<N>>,
     exec: Pin<&mut Executor<'_, S>>,

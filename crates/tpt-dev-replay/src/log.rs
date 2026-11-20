@@ -33,6 +33,15 @@ impl<const N: usize> Default for Log<N> {
 
 impl<const N: usize> Log<N> {
     /// An empty log.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_replay::Log;
+    ///
+    /// let log: Log<4> = Log::new();
+    /// assert!(log.is_empty());
+    /// ```
     pub const fn new() -> Self {
         Self {
             buf: [Event::Schedule { slot: 0 }; N],
@@ -41,6 +50,17 @@ impl<const N: usize> Log<N> {
     }
 
     /// Appends an event, or returns [`Full`] without storing it.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_replay::{Event, Full, Log};
+    ///
+    /// let mut log: Log<1> = Log::new();
+    /// assert!(log.push(Event::Schedule { slot: 0 }).is_ok());
+    /// // The log holds one event, so the second is refused.
+    /// assert_eq!(log.push(Event::Schedule { slot: 1 }), Err(Full));
+    /// ```
     pub fn push(&mut self, e: Event) -> Result<(), Full> {
         if self.len == N {
             return Err(Full);
@@ -51,21 +71,60 @@ impl<const N: usize> Log<N> {
     }
 
     /// The events, oldest first.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_replay::{Event, Log};
+    ///
+    /// let mut log: Log<4> = Log::new();
+    /// log.push(Event::Interrupt { slot: 2 }).unwrap();
+    /// assert_eq!(log.as_slice(), &[Event::Interrupt { slot: 2 }]);
+    /// ```
     pub fn as_slice(&self) -> &[Event] {
         &self.buf[..self.len]
     }
 
     /// Number of events stored.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_replay::{Event, Log};
+    ///
+    /// let mut log: Log<4> = Log::new();
+    /// assert_eq!(log.len(), 0);
+    /// log.push(Event::Schedule { slot: 0 }).unwrap();
+    /// assert_eq!(log.len(), 1);
+    /// ```
     pub const fn len(&self) -> usize {
         self.len
     }
 
     /// Returns `true` when no events are stored.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_replay::Log;
+    ///
+    /// let log: Log<2> = Log::new();
+    /// assert!(log.is_empty());
+    /// ```
     pub const fn is_empty(&self) -> bool {
         self.len == 0
     }
 
     /// The capacity, `N`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_replay::Log;
+    ///
+    /// let log: Log<8> = Log::new();
+    /// assert_eq!(log.capacity(), 8);
+    /// ```
     pub const fn capacity(&self) -> usize {
         N
     }
@@ -102,6 +161,16 @@ impl<const N: usize> Default for Ring<N> {
 
 impl<const N: usize> Ring<N> {
     /// An empty ring. Fails to compile if `N` is zero.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_replay::Ring;
+    ///
+    /// let ring: Ring<3> = Ring::new();
+    /// assert_eq!(ring.iter().count(), 0);
+    /// assert_eq!(ring.overwritten(), 0);
+    /// ```
     pub const fn new() -> Self {
         const { assert!(N > 0, "a ring needs at least one slot") };
         Self {
@@ -113,6 +182,18 @@ impl<const N: usize> Ring<N> {
     }
 
     /// Adds an event, overwriting the oldest one if the ring is full.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_replay::{Event, Ring};
+    ///
+    /// let mut ring: Ring<2> = Ring::new();
+    /// ring.push(Event::Schedule { slot: 0 });
+    /// ring.push(Event::Schedule { slot: 1 });
+    /// ring.push(Event::Schedule { slot: 2 });
+    /// assert_eq!(ring.iter().count(), 2);
+    /// ```
     pub fn push(&mut self, e: Event) {
         if self.len == N {
             self.buf[self.start] = e;
@@ -125,11 +206,36 @@ impl<const N: usize> Ring<N> {
     }
 
     /// The stored events, oldest first.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_replay::{Event, Ring};
+    ///
+    /// let mut ring: Ring<4> = Ring::new();
+    /// ring.push(Event::Schedule { slot: 0 });
+    /// ring.push(Event::Interrupt { slot: 1 });
+    /// let events: Vec<Event> = ring.iter().collect();
+    /// assert_eq!(events, vec![Event::Schedule { slot: 0 }, Event::Interrupt { slot: 1 }]);
+    /// ```
     pub fn iter(&self) -> impl Iterator<Item = Event> + '_ {
         (0..self.len).map(move |i| self.buf[(self.start + i) % N])
     }
 
     /// Number of events lost to overwriting.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_replay::{Event, Ring};
+    ///
+    /// let mut ring: Ring<2> = Ring::new();
+    /// for slot in 0..5 {
+    ///     ring.push(Event::Schedule { slot });
+    /// }
+    /// // Five pushes into two slots lose three events.
+    /// assert_eq!(ring.overwritten(), 3);
+    /// ```
     pub const fn overwritten(&self) -> u64 {
         self.overwritten
     }

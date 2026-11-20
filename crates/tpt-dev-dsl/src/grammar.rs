@@ -51,6 +51,17 @@ pub struct Grammar {
 impl Grammar {
     /// A grammar from its rules. Panics at compile time if it has no rules, or
     /// if a `Call` names a rule that does not exist.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_dsl::{Expr, Grammar, Rule};
+    /// const GREETING: Grammar = Grammar::new(&[Rule {
+    ///     name: "greeting",
+    ///     body: Expr::Lit(b"hi"),
+    /// }]);
+    /// assert_eq!(GREETING.rules().len(), 1);
+    /// ```
     pub const fn new(rules: &'static [Rule]) -> Self {
         assert!(!rules.is_empty(), "a grammar needs at least one rule");
         assert!(
@@ -61,11 +72,34 @@ impl Grammar {
     }
 
     /// The rules, in order.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_dsl::{Expr, Grammar, Rule};
+    /// const G: Grammar = Grammar::new(&[
+    ///     Rule { name: "a", body: Expr::Lit(b"a") },
+    ///     Rule { name: "b", body: Expr::Lit(b"b") },
+    /// ]);
+    /// assert_eq!(G.rules()[1].name, "b");
+    /// ```
     pub const fn rules(&self) -> &'static [Rule] {
         self.rules
     }
 
     /// The index of the rule called `name`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_dsl::{Expr, Grammar, Rule};
+    /// const G: Grammar = Grammar::new(&[
+    ///     Rule { name: "a", body: Expr::Lit(b"a") },
+    ///     Rule { name: "b", body: Expr::Lit(b"b") },
+    /// ]);
+    /// assert_eq!(G.rule_index("b"), Some(1));
+    /// assert_eq!(G.rule_index("z"), None);
+    /// ```
     pub fn rule_index(&self, name: &str) -> Option<usize> {
         self.rules.iter().position(|r| r.name == name)
     }

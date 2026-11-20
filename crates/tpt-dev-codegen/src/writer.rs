@@ -34,6 +34,15 @@ pub struct Writer {
 
 impl Writer {
     /// An empty writer.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_codegen::Writer;
+    ///
+    /// let w = Writer::new();
+    /// assert!(w.finish().unwrap().is_empty());
+    /// ```
     pub const fn new() -> Self {
         Self {
             out: String::new(),
@@ -43,6 +52,16 @@ impl Writer {
     }
 
     /// Writes one line at the current indentation.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_codegen::Writer;
+    ///
+    /// let mut w = Writer::new();
+    /// w.line("fn main() {}");
+    /// assert_eq!(w.finish().unwrap(), "fn main() {}\n");
+    /// ```
     pub fn line(&mut self, text: &str) -> &mut Self {
         for _ in 0..self.depth {
             self.out.push_str(INDENT);
@@ -53,12 +72,34 @@ impl Writer {
     }
 
     /// Writes an empty line.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_codegen::Writer;
+    ///
+    /// let mut w = Writer::new();
+    /// w.line("a").blank().line("b");
+    /// assert_eq!(w.finish().unwrap(), "a\n\nb\n");
+    /// ```
     pub fn blank(&mut self) -> &mut Self {
         self.out.push('\n');
         self
     }
 
     /// Writes `header {`, runs `body` one level deeper, then writes `}`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_codegen::Writer;
+    ///
+    /// let mut w = Writer::new();
+    /// w.block("fn one() -> u8", |w| {
+    ///     w.line("1");
+    /// });
+    /// assert_eq!(w.finish().unwrap(), "fn one() -> u8 {\n    1\n}\n");
+    /// ```
     pub fn block<F>(&mut self, header: &str, body: F) -> &mut Self
     where
         F: FnOnce(&mut Self),
@@ -74,6 +115,16 @@ impl Writer {
 
     /// Writes `visibility const NAME: ty = value;`. The name is checked. The
     /// value is written as given, so it must be a valid expression.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_codegen::Writer;
+    ///
+    /// let mut w = Writer::new();
+    /// w.constant("pub", "LIMIT", "u32", "64").unwrap();
+    /// assert_eq!(w.finish().unwrap(), "pub const LIMIT: u32 = 64;\n");
+    /// ```
     pub fn constant(
         &mut self,
         visibility: &str,
@@ -94,6 +145,17 @@ impl Writer {
     }
 
     /// Writes a `&'static str` constant, with the value escaped.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_codegen::Writer;
+    ///
+    /// let mut w = Writer::new();
+    /// w.str_constant("", "NAME", "left").unwrap();
+    /// let src = w.finish().unwrap();
+    /// assert!(src.starts_with("const NAME: &'static str = "));
+    /// ```
     pub fn str_constant(
         &mut self,
         visibility: &str,
@@ -114,6 +176,21 @@ impl Writer {
     }
 
     /// The generated source, or the first error that occurred.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_codegen::Writer;
+    ///
+    /// let mut w = Writer::new();
+    /// w.line("x");
+    /// assert_eq!(w.finish().unwrap(), "x\n");
+    ///
+    /// // A bad identifier is recorded and reported by finish.
+    /// let mut bad = Writer::new();
+    /// assert!(bad.constant("", "not valid", "u8", "1").is_err());
+    /// assert!(bad.finish().is_err());
+    /// ```
     pub fn finish(self) -> Result<String, Error> {
         match self.error {
             Some(e) => Err(e),

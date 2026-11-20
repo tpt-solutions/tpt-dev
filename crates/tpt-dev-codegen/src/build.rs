@@ -29,11 +29,38 @@ pub fn write_if_changed(path: &Path, contents: &str) -> io::Result<bool> {
 ///
 /// Call it once for each input the generated code depends on. Prints to
 /// standard output, which Cargo reads.
+///
+/// # Examples
+///
+/// ```
+/// # #[cfg(feature = "std")]
+/// # fn main() {
+/// use std::path::Path;
+/// use tpt_dev_codegen::build::rerun_if_changed;
+///
+/// rerun_if_changed(Path::new("schema/messages.txt"));
+/// # }
+/// # #[cfg(not(feature = "std"))]
+/// # fn main() {}
+/// ```
 pub fn rerun_if_changed(path: &Path) {
     std::println!("cargo:rerun-if-changed={}", path.display());
 }
 
 /// Tells Cargo to rerun the build script when environment variable `name` changes.
+///
+/// # Examples
+///
+/// ```
+/// # #[cfg(feature = "std")]
+/// # fn main() {
+/// use tpt_dev_codegen::build::rerun_if_env_changed;
+///
+/// rerun_if_env_changed("GENERATED_CONFIG");
+/// # }
+/// # #[cfg(not(feature = "std"))]
+/// # fn main() {}
+/// ```
 pub fn rerun_if_env_changed(name: &str) {
     std::println!("cargo:rerun-if-env-changed={name}");
 }

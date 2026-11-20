@@ -39,6 +39,17 @@ unsafe impl<T: Send> Sync for TripleBuffer<T> {}
 impl<T> TripleBuffer<T> {
     /// Creates a buffer with three initial slot values.
     #[cfg(not(loom))]
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_lock::TripleBuffer;
+    ///
+    /// let mut buf = TripleBuffer::new(0u8, 0, 0);
+    /// let (mut writer, mut reader) = buf.split();
+    /// writer.write(5);
+    /// reader.with_latest(|value| assert_eq!(*value, 5));
+    /// ```
     pub const fn new(a: T, b: T, c: T) -> Self {
         Self {
             slots: [UnsafeCell::new(a), UnsafeCell::new(b), UnsafeCell::new(c)],
@@ -48,6 +59,17 @@ impl<T> TripleBuffer<T> {
 
     /// Creates a buffer with three initial slot values.
     #[cfg(loom)]
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_lock::TripleBuffer;
+    ///
+    /// let mut buf = TripleBuffer::new(0u8, 0, 0);
+    /// let (mut writer, mut reader) = buf.split();
+    /// writer.write(5);
+    /// reader.with_latest(|value| assert_eq!(*value, 5));
+    /// ```
     pub fn new(a: T, b: T, c: T) -> Self {
         Self {
             slots: [UnsafeCell::new(a), UnsafeCell::new(b), UnsafeCell::new(c)],
@@ -56,6 +78,16 @@ impl<T> TripleBuffer<T> {
     }
 
     /// Returns the writer and reader handles.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_lock::TripleBuffer;
+    ///
+    /// let mut buf = TripleBuffer::new(1u8, 2, 3);
+    /// let (_writer, mut reader) = buf.split();
+    /// reader.with_latest(|value| assert_eq!(*value, 3));
+    /// ```
     pub fn split(&mut self) -> (Writer<'_, T>, Reader<'_, T>) {
         (
             Writer { buf: self, back: 0 },
@@ -75,6 +107,17 @@ pub struct Writer<'a, T> {
 
 impl<T> Writer<'_, T> {
     /// Publishes `value`. The previous unread value, if any, is dropped.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_lock::TripleBuffer;
+    ///
+    /// let mut buf = TripleBuffer::new(0u8, 0, 0);
+    /// let (mut writer, mut reader) = buf.split();
+    /// writer.write(42);
+    /// reader.with_latest(|value| assert_eq!(*value, 42));
+    /// ```
     pub fn write(&mut self, value: T) {
         // SAFETY: `back` is owned by the writer, so no other party touches this slot.
         self.buf.slots[usize::from(self.back)].with_mut(|ptr| unsafe { *ptr = value });
@@ -96,6 +139,19 @@ impl<T> Reader<'_, T> {
     ///
     /// If nothing new was written since the last call, `f` sees the same
     /// value again.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_lock::TripleBuffer;
+    ///
+    /// let mut buf = TripleBuffer::new(0u8, 0, 0);
+    /// let (mut writer, mut reader) = buf.split();
+    /// writer.write(1);
+    /// assert_eq!(reader.with_latest(|value| *value), 1);
+    /// // Nothing new was written, so the same value is seen again.
+    /// assert_eq!(reader.with_latest(|value| *value), 1);
+    /// ```
     pub fn with_latest<R>(&mut self, f: impl FnOnce(&T) -> R) -> R {
         if self.buf.state.load(Ordering::Relaxed) & DIRTY != 0 {
             // Take the middle slot and leave our old slot as the middle one.

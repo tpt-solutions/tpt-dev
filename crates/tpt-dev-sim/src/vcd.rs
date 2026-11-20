@@ -20,6 +20,19 @@ pub struct Vcd<W, const N: usize> {
 impl<W: Write, const N: usize> Vcd<W, N> {
     /// Writes the VCD header for `kernel`, under a module named `scope`, and the
     /// kernel's current values.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_sim::{Kernel, Vcd};
+    ///
+    /// let mut k: Kernel<1> = Kernel::new();
+    /// k.signal("ready", 1, 0).unwrap();
+    /// let vcd = Vcd::new(String::new(), &k, "top").unwrap();
+    /// let text = vcd.into_inner();
+    /// assert!(text.contains("$scope module top $end"));
+    /// assert!(text.contains("$var wire 1 ! ready $end"));
+    /// ```
     pub fn new(mut out: W, kernel: &Kernel<N>, scope: &str) -> Result<Self, fmt::Error> {
         writeln!(out, "$timescale 1ns $end")?;
         writeln!(out, "$scope module {scope} $end")?;
@@ -45,6 +58,22 @@ impl<W: Write, const N: usize> Vcd<W, N> {
     }
 
     /// Writes the signals whose values changed since the last sample.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_sim::{Kernel, Vcd};
+    ///
+    /// let mut k: Kernel<1> = Kernel::new();
+    /// let ready = k.signal("ready", 1, 0).unwrap();
+    /// let mut text = String::new();
+    /// let mut vcd = Vcd::new(&mut text, &k, "top").unwrap();
+    /// k.poke(ready, 1);
+    /// vcd.sample(&k).unwrap();
+    /// drop(vcd);
+    /// // The changed value is the last line of the dump.
+    /// assert_eq!(text.lines().last().unwrap().chars().next(), Some('1'));
+    /// ```
     pub fn sample(&mut self, kernel: &Kernel<N>) -> fmt::Result {
         let mut stamped = false;
         for signal in kernel.signals() {
@@ -75,6 +104,18 @@ impl<W: Write, const N: usize> Vcd<W, N> {
     }
 
     /// Returns the underlying writer.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_sim::{Kernel, Vcd};
+    ///
+    /// let k: Kernel<1> = Kernel::new();
+    /// let vcd = Vcd::new(String::new(), &k, "top").unwrap();
+    /// // Taking the writer back returns the text written so far.
+    /// let text: String = vcd.into_inner();
+    /// assert!(text.contains("$enddefinitions $end"));
+    /// ```
     pub fn into_inner(self) -> W {
         self.out
     }

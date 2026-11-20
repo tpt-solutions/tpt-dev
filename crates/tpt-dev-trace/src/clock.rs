@@ -49,6 +49,15 @@ mod manual {
 
     impl ManualClock {
         /// Creates a clock that reads `start`.
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// use tpt_dev_trace::{Clock, ManualClock};
+        ///
+        /// let clock = ManualClock::new(7);
+        /// assert_eq!(clock.now(), 7);
+        /// ```
         #[cfg(not(loom))]
         pub const fn new(start: u64) -> Self {
             Self {
@@ -57,6 +66,15 @@ mod manual {
         }
 
         /// Creates a clock that reads `start`.
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// use tpt_dev_trace::{Clock, ManualClock};
+        ///
+        /// let clock = ManualClock::new(7);
+        /// assert_eq!(clock.now(), 7);
+        /// ```
         #[cfg(loom)]
         pub fn new(start: u64) -> Self {
             Self {
@@ -65,6 +83,17 @@ mod manual {
         }
 
         /// Moves the clock forward by `ticks`.
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// use tpt_dev_trace::{Clock, ManualClock};
+        ///
+        /// let clock = ManualClock::new(0);
+        /// clock.advance(3);
+        /// clock.advance(4);
+        /// assert_eq!(clock.now(), 7);
+        /// ```
         pub fn advance(&self, ticks: u64) {
             self.ticks.fetch_add(ticks, Ordering::SeqCst);
         }

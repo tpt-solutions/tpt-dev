@@ -84,11 +84,42 @@ pub struct Memo<const N: usize> {
 
 impl<const N: usize> Memo<N> {
     /// An empty memo table.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_dsl::{Expr, Grammar, Rule};
+    /// const DIGIT: Expr = Expr::Range(b'0', b'9');
+    /// const NUMBER: Grammar = Grammar::new(&[Rule {
+    ///     name: "number",
+    ///     body: Expr::Seq(&[DIGIT, Expr::Repeat(&DIGIT)]),
+    /// }]);
+    /// use tpt_dev_dsl::Memo;
+    /// let mut memo = Memo::<16>::new();
+    /// assert_eq!(NUMBER.recognise_packrat(0, b"2024", &mut memo), Ok(true));
+    /// ```
     pub const fn new() -> Self {
         Self { slots: [None; N] }
     }
 
     /// Forgets every entry, so the table can be used for a new input.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_dsl::{Expr, Grammar, Rule};
+    /// const DIGIT: Expr = Expr::Range(b'0', b'9');
+    /// const NUMBER: Grammar = Grammar::new(&[Rule {
+    ///     name: "number",
+    ///     body: Expr::Seq(&[DIGIT, Expr::Repeat(&DIGIT)]),
+    /// }]);
+    /// use tpt_dev_dsl::Memo;
+    /// let mut memo = Memo::<16>::new();
+    /// assert_eq!(NUMBER.recognise_packrat(0, b"2024", &mut memo), Ok(true));
+    /// // The memo still holds entries for "2024", so clear it before reusing it.
+    /// memo.clear();
+    /// assert_eq!(NUMBER.recognise_packrat(0, b"20x4", &mut memo), Ok(false));
+    /// ```
     pub fn clear(&mut self) {
         self.slots = [None; N];
     }
@@ -105,11 +136,11 @@ enum Slot {
     Vacant(usize),
 }
 
-type Fail = Option<(usize, Expected)>;
+pub(crate) type Fail = Option<(usize, Expected)>;
 
 /// Keeps the interpreter's rule: a failure replaces the current one only if it
 /// is at least as far along.
-fn apply(current: &mut Fail, event: Fail) {
+pub(crate) fn apply(current: &mut Fail, event: Fail) {
     if let Some((pos, what)) = event
         && current.is_none_or(|(furthest, _)| pos >= furthest)
     {
@@ -117,14 +148,14 @@ fn apply(current: &mut Fail, event: Fail) {
     }
 }
 
-fn merge_max(a: Option<usize>, b: Option<usize>) -> Option<usize> {
+pub(crate) fn merge_max(a: Option<usize>, b: Option<usize>) -> Option<usize> {
     match (a, b) {
         (Some(x), Some(y)) => Some(x.max(y)),
         (x, None) | (None, x) => x,
     }
 }
 
-fn merge_min(a: Option<usize>, b: Option<usize>) -> Option<usize> {
+pub(crate) fn merge_min(a: Option<usize>, b: Option<usize>) -> Option<usize> {
     match (a, b) {
         (Some(x), Some(y)) => Some(x.min(y)),
         (x, None) | (None, x) => x,
@@ -142,14 +173,16 @@ struct Matcher<'g, 'i, 'm, const N: usize> {
     bad_min: Option<usize>,
 }
 
+/// Where a rule at a position lives in the memo table. Shared with the
+/// streaming matcher, so both probe the table in the same order.
+pub(crate) fn hash(rule: usize, pos: usize) -> usize {
+    let h = (rule as u32).wrapping_mul(0x9E37_79B9) ^ (pos as u32).wrapping_mul(0x85EB_CA6B);
+    (h ^ (h >> 15)) as usize
+}
+
 impl<const N: usize> Matcher<'_, '_, '_, N> {
     fn fail(&mut self, pos: usize, what: Expected) {
         apply(&mut self.furthest, Some((pos, what)));
-    }
-
-    fn hash(rule: usize, pos: usize) -> usize {
-        let h = (rule as u32).wrapping_mul(0x9E37_79B9) ^ (pos as u32).wrapping_mul(0x85EB_CA6B);
-        (h ^ (h >> 15)) as usize
     }
 
     /// Finds the slot for `(rule, pos)`: its own slot if present, else the
@@ -158,7 +191,7 @@ impl<const N: usize> Matcher<'_, '_, '_, N> {
         if N == 0 {
             return Err(MemoFull);
         }
-        let mut i = Self::hash(rule, pos) % N;
+        let mut i = hash(rule, pos) % N;
         for _ in 0..N {
             match self.memo.slots[i] {
                 None => return Ok(Slot::Vacant(i)),
@@ -413,6 +446,22 @@ impl Grammar {
 
     /// Returns `true` if rule `rule` matches all of `input`, as
     /// [`Grammar::recognise`] does, with the packrat matcher.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_dsl::{Expr, Grammar, Rule};
+    /// const DIGIT: Expr = Expr::Range(b'0', b'9');
+    /// const NUMBER: Grammar = Grammar::new(&[Rule {
+    ///     name: "number",
+    ///     body: Expr::Seq(&[DIGIT, Expr::Repeat(&DIGIT)]),
+    /// }]);
+    /// use tpt_dev_dsl::Memo;
+    /// let mut memo = Memo::<16>::new();
+    /// assert_eq!(NUMBER.recognise_packrat(0, b"2024", &mut memo), Ok(true));
+    /// memo.clear();
+    /// assert_eq!(NUMBER.recognise_packrat(0, b"20x4", &mut memo), Ok(false));
+    /// ```
     pub fn recognise_packrat<const N: usize>(
         &self,
         rule: usize,

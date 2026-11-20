@@ -8,7 +8,8 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 readme = "README.md"
-categories = ["no-std"]
+keywords = ["lock-ordering", "deadlock", "spsc", "lock-free", "wait-free"]
+categories = ["concurrency", "no-std", "no-std::no-alloc", "data-structures"]
 
 [features]
 default = []

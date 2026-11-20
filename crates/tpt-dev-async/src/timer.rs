@@ -34,6 +34,17 @@ pub struct Delay<'c, C: Clock + ?Sized> {
 
 impl<'c, C: Clock + ?Sized> Delay<'c, C> {
     /// Completes after `ticks` clock ticks from now.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_async::Delay;
+    /// use tpt_dev_trace::ManualClock;
+    ///
+    /// let clock = ManualClock::new(10);
+    /// let delay = Delay::new(&clock, 5);
+    /// assert_eq!(delay.deadline(), 15);
+    /// ```
     pub fn new(clock: &'c C, ticks: u64) -> Self {
         Self {
             clock,
@@ -42,6 +53,16 @@ impl<'c, C: Clock + ?Sized> Delay<'c, C> {
     }
 
     /// The tick at which the delay completes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_async::Delay;
+    /// use tpt_dev_trace::ManualClock;
+    ///
+    /// let clock = ManualClock::new(0);
+    /// assert_eq!(Delay::new(&clock, 4).deadline(), 4);
+    /// ```
     pub const fn deadline(&self) -> u64 {
         self.until
     }

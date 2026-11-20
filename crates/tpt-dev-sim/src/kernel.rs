@@ -14,6 +14,18 @@ pub struct SignalId(usize);
 
 impl SignalId {
     /// The signal's index, in allocation order from zero.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_sim::Kernel;
+    ///
+    /// let mut k: Kernel<2> = Kernel::new();
+    /// let a = k.signal("a", 1, 0).unwrap();
+    /// let b = k.signal("b", 8, 0).unwrap();
+    /// assert_eq!(a.index(), 0);
+    /// assert_eq!(b.index(), 1);
+    /// ```
     pub const fn index(self) -> usize {
         self.0
     }
@@ -74,22 +86,115 @@ pub struct Ctx<'a> {
 
 impl Ctx<'_> {
     /// The cycle being evaluated. The first cycle is zero.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_sim::{Component, Ctx, Kernel, SignalId};
+    ///
+    /// struct CycleOut(SignalId);
+    /// impl Component for CycleOut {
+    ///     fn tick(&mut self, ctx: &mut Ctx<'_>) {
+    ///         let cycle = ctx.cycle();
+    ///         ctx.write(self.0, cycle);
+    ///     }
+    /// }
+    ///
+    /// let mut k: Kernel<1> = Kernel::new();
+    /// let out = k.signal("out", 64, 0).unwrap();
+    /// let mut c = CycleOut(out);
+    /// // Cycle 0 writes 0 and cycle 1 writes 1. The committed value is one cycle behind.
+    /// k.step(&mut [&mut c]);
+    /// k.step(&mut [&mut c]);
+    /// assert_eq!(k.value(out), 1);
+    /// ```
     pub fn cycle(&self) -> u64 {
         self.bus.cycle()
     }
 
     /// The committed value of `signal` from the previous cycle.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_sim::{Component, Ctx, Kernel, SignalId};
+    ///
+    /// struct Forward {
+    ///     from: SignalId,
+    ///     to: SignalId,
+    /// }
+    /// impl Component for Forward {
+    ///     fn tick(&mut self, ctx: &mut Ctx<'_>) {
+    ///         let v = ctx.read(self.from);
+    ///         ctx.write(self.to, v);
+    ///     }
+    /// }
+    ///
+    /// let mut k: Kernel<2> = Kernel::new();
+    /// let from = k.signal("from", 8, 5).unwrap();
+    /// let to = k.signal("to", 8, 0).unwrap();
+    /// let mut f = Forward { from, to };
+    /// k.step(&mut [&mut f]);
+    /// assert_eq!(k.value(to), 5);
+    /// ```
     pub fn read(&self, signal: SignalId) -> u64 {
         self.bus.read(signal)
     }
 
     /// Sets the value `signal` takes at the end of this cycle. Values wider than
     /// the signal are truncated. A signal that is not written keeps its value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_sim::{Component, Ctx, Kernel, SignalId};
+    ///
+    /// struct Forward {
+    ///     from: SignalId,
+    ///     to: SignalId,
+    /// }
+    /// impl Component for Forward {
+    ///     fn tick(&mut self, ctx: &mut Ctx<'_>) {
+    ///         let v = ctx.read(self.from);
+    ///         ctx.write(self.to, v);
+    ///     }
+    /// }
+    ///
+    /// let mut k: Kernel<2> = Kernel::new();
+    /// let from = k.signal("from", 8, 0xAB).unwrap();
+    /// // The destination is 4 bits wide, so the written value is truncated to 0xB.
+    /// let to = k.signal("to", 4, 0).unwrap();
+    /// let mut f = Forward { from, to };
+    /// k.step(&mut [&mut f]);
+    /// assert_eq!(k.value(to), 0xB);
+    /// ```
     pub fn write(&mut self, signal: SignalId, value: u64) {
         self.bus.write(self.component, signal, value);
     }
 
     /// Records a failed check at this cycle.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_sim::{Component, Ctx, Kernel, SignalId};
+    ///
+    /// struct Limit(SignalId);
+    /// impl Component for Limit {
+    ///     fn tick(&mut self, ctx: &mut Ctx<'_>) {
+    ///         if ctx.read(self.0) > 3 {
+    ///             ctx.fail("too high");
+    ///         }
+    ///     }
+    /// }
+    ///
+    /// let mut k: Kernel<1> = Kernel::new();
+    /// let level = k.signal("level", 8, 0).unwrap();
+    /// let mut limit = Limit(level);
+    /// k.poke(level, 9);
+    /// k.step(&mut [&mut limit]);
+    /// assert_eq!(k.failures(), 1);
+    /// ```
     pub fn fail(&mut self, message: &'static str) {
         self.bus.fail(self.component, message);
     }
@@ -128,6 +233,16 @@ impl<const N: usize> Default for Kernel<N> {
 
 impl<const N: usize> Kernel<N> {
     /// An empty kernel at cycle zero.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_sim::Kernel;
+    ///
+    /// let k: Kernel<4> = Kernel::new();
+    /// assert_eq!(k.cycle(), 0);
+    /// assert_eq!(k.signals().count(), 0);
+    /// ```
     pub const fn new() -> Self {
         Self {
             cycle: 0,
@@ -145,6 +260,18 @@ impl<const N: usize> Kernel<N> {
     /// Allocates a signal of `width` bits, starting at `init`.
     ///
     /// The name is used in waveform output and should be a plain identifier.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_sim::{Kernel, SimError};
+    ///
+    /// let mut k: Kernel<1> = Kernel::new();
+    /// let ready = k.signal("ready", 1, 1).unwrap();
+    /// assert_eq!(k.value(ready), 1);
+    /// // The kernel has one slot, now used up.
+    /// assert_eq!(k.signal("extra", 1, 0), Err(SimError::Full));
+    /// ```
     pub fn signal(
         &mut self,
         name: &'static str,
@@ -168,12 +295,34 @@ impl<const N: usize> Kernel<N> {
     }
 
     /// The committed value of `signal`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_sim::Kernel;
+    ///
+    /// let mut k: Kernel<1> = Kernel::new();
+    /// // The initial value is masked to the 4-bit width.
+    /// let nibble = k.signal("nibble", 4, 0x1F).unwrap();
+    /// assert_eq!(k.value(nibble), 0xF);
+    /// ```
     pub fn value(&self, signal: SignalId) -> u64 {
         self.current[signal.0]
     }
 
     /// Sets `signal` between cycles, for stimulus from the host. The new value is
     /// visible to the next cycle.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_sim::Kernel;
+    ///
+    /// let mut k: Kernel<1> = Kernel::new();
+    /// let nibble = k.signal("nibble", 4, 0).unwrap();
+    /// k.poke(nibble, 0x1F);
+    /// assert_eq!(k.value(nibble), 0xF);
+    /// ```
     pub fn poke(&mut self, signal: SignalId, value: u64) {
         let v = value & mask(self.widths[signal.0]);
         self.current[signal.0] = v;
@@ -181,31 +330,123 @@ impl<const N: usize> Kernel<N> {
     }
 
     /// The number of completed cycles.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_sim::{Component, Kernel};
+    ///
+    /// let mut k: Kernel<1> = Kernel::new();
+    /// let mut none: [&mut dyn Component; 0] = [];
+    /// k.step(&mut none);
+    /// assert_eq!(k.cycle(), 1);
+    /// ```
     pub fn cycle(&self) -> u64 {
         self.cycle
     }
 
     /// The signals allocated so far, in allocation order.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_sim::{Kernel, SignalId};
+    ///
+    /// let mut k: Kernel<3> = Kernel::new();
+    /// k.signal("a", 1, 0).unwrap();
+    /// k.signal("b", 2, 0).unwrap();
+    /// let ids: Vec<SignalId> = k.signals().collect();
+    /// assert_eq!(ids.len(), 2);
+    /// ```
     pub fn signals(&self) -> impl Iterator<Item = SignalId> {
         (0..self.count).map(SignalId)
     }
 
     /// The name given to `signal`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_sim::Kernel;
+    ///
+    /// let mut k: Kernel<1> = Kernel::new();
+    /// let ready = k.signal("ready", 1, 0).unwrap();
+    /// assert_eq!(k.name(ready), "ready");
+    /// ```
     pub fn name(&self, signal: SignalId) -> &'static str {
         self.names[signal.0]
     }
 
     /// The width of `signal`, in bits.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_sim::Kernel;
+    ///
+    /// let mut k: Kernel<1> = Kernel::new();
+    /// let count = k.signal("count", 32, 0).unwrap();
+    /// assert_eq!(k.width(count), 32);
+    /// ```
     pub fn width(&self, signal: SignalId) -> u8 {
         self.widths[signal.0]
     }
 
     /// The number of failures recorded so far.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_sim::{Component, Ctx, Kernel, SignalId};
+    ///
+    /// struct Limit(SignalId);
+    /// impl Component for Limit {
+    ///     fn tick(&mut self, ctx: &mut Ctx<'_>) {
+    ///         if ctx.read(self.0) > 3 {
+    ///             ctx.fail("too high");
+    ///         }
+    ///     }
+    /// }
+    ///
+    /// let mut k: Kernel<1> = Kernel::new();
+    /// let level = k.signal("level", 8, 0).unwrap();
+    /// let mut limit = Limit(level);
+    /// assert_eq!(k.failures(), 0);
+    /// k.poke(level, 9);
+    /// k.step(&mut [&mut limit]);
+    /// assert_eq!(k.failures(), 1);
+    /// ```
     pub fn failures(&self) -> u64 {
         self.failures
     }
 
     /// The first failure recorded, if any.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_sim::{Component, Ctx, Kernel, SignalId};
+    ///
+    /// struct Limit(SignalId);
+    /// impl Component for Limit {
+    ///     fn tick(&mut self, ctx: &mut Ctx<'_>) {
+    ///         if ctx.read(self.0) > 3 {
+    ///             ctx.fail("too high");
+    ///         }
+    ///     }
+    /// }
+    ///
+    /// let mut k: Kernel<1> = Kernel::new();
+    /// let level = k.signal("level", 8, 0).unwrap();
+    /// let mut limit = Limit(level);
+    /// assert!(k.first_failure().is_none());
+    /// k.poke(level, 9);
+    /// k.step(&mut [&mut limit]);
+    /// let failure = k.first_failure().unwrap();
+    /// assert_eq!(failure.message, "too high");
+    /// assert_eq!(failure.component, 0);
+    /// assert_eq!(failure.cycle, 0);
+    /// ```
     pub fn first_failure(&self) -> Option<Failure> {
         self.first
     }
@@ -214,6 +455,35 @@ impl<const N: usize> Kernel<N> {
     ///
     /// Two components that write the same signal in one cycle record a failure.
     /// The later write wins, so the result is still deterministic.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_sim::{Component, Ctx, Kernel, SignalId};
+    ///
+    /// struct Forward {
+    ///     from: SignalId,
+    ///     to: SignalId,
+    /// }
+    /// impl Component for Forward {
+    ///     fn tick(&mut self, ctx: &mut Ctx<'_>) {
+    ///         let v = ctx.read(self.from);
+    ///         ctx.write(self.to, v);
+    ///     }
+    /// }
+    ///
+    /// let mut k: Kernel<2> = Kernel::new();
+    /// let a = k.signal("a", 8, 1).unwrap();
+    /// let b = k.signal("b", 8, 0).unwrap();
+    /// let mut f = Forward { from: a, to: b };
+    /// // Each step moves the value one signal along.
+    /// k.step(&mut [&mut f]);
+    /// assert_eq!(k.value(b), 1);
+    /// k.poke(a, 7);
+    /// k.step(&mut [&mut f]);
+    /// assert_eq!(k.value(b), 7);
+    /// assert_eq!(k.cycle(), 2);
+    /// ```
     pub fn step(&mut self, components: &mut [&mut dyn Component]) {
         let n = self.count;
         self.next[..n].copy_from_slice(&self.current[..n]);

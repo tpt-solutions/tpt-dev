@@ -24,6 +24,15 @@ pub struct Field {
 
 impl Field {
     /// A little-endian bit field.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_codec::Field;
+    ///
+    /// let field = Field::bits("flags", 0, 4);
+    /// assert_eq!((field.name, field.offset, field.width), ("flags", 0, 4));
+    /// ```
     pub const fn bits(name: &'static str, offset: u16, width: u8) -> Self {
         Self {
             name,
@@ -34,6 +43,16 @@ impl Field {
     }
 
     /// A big-endian, byte-aligned field.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_codec::{Endian, Field};
+    ///
+    /// let field = Field::be("sensor", 16, 16);
+    /// assert_eq!(field.endian, Endian::Big);
+    /// assert_eq!(field.offset, 16);
+    /// ```
     pub const fn be(name: &'static str, offset: u16, width: u8) -> Self {
         Self {
             name,

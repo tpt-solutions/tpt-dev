@@ -41,6 +41,25 @@ impl<'a> Timer<'a> {
     /// A timer whose registers are `regs`, driving the `count` and `irq` signals.
     ///
     /// The `count` signal must be 32 bits wide and `irq` one bit wide.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use core::cell::Cell;
+    /// use tpt_dev_sim::Kernel;
+    /// use tpt_dev_sim::timer::{CTRL_ENABLE, Timer};
+    ///
+    /// // Enabled, with a period of 3: the counter goes 0, 1, 2 and wraps to 0.
+    /// let regs = [Cell::new(CTRL_ENABLE), Cell::new(3), Cell::new(0)];
+    /// let mut sim: Kernel<2> = Kernel::new();
+    /// let count = sim.signal("count", 32, 0).unwrap();
+    /// let irq = sim.signal("irq", 1, 0).unwrap();
+    /// let mut timer = Timer::new(&regs, count, irq);
+    /// for _ in 0..3 {
+    ///     sim.step(&mut [&mut timer]);
+    /// }
+    /// assert_eq!(sim.value(count), 0);
+    /// ```
     pub const fn new(regs: &'a [Cell<u32>; 3], count: SignalId, irq: SignalId) -> Self {
         Self { regs, count, irq }
     }

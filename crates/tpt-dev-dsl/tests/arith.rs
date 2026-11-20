@@ -246,12 +246,8 @@ use tpt_dev_dsl::{Memo, PackratError, PackratStream, StreamError, Tree};
 const ARITH_ALPHABET: &[u8] = b"0123456789 +-*/()";
 
 /// Feeds `input` in chunks whose sizes cycle through `sizes`, then finishes.
-fn stream_parse<const N: usize>(
-    input: &[u8],
-    sizes: &[usize],
-    memo: &mut Memo<N>,
-) -> Result<Tree, StreamError> {
-    let mut s: PackratStream<8192> = PackratStream::new(ARITH, EXPR);
+fn stream_parse<const N: usize>(input: &[u8], sizes: &[usize]) -> Result<Tree, StreamError> {
+    let mut s: PackratStream<8192, N> = PackratStream::new(ARITH, EXPR);
     let (mut at, mut i) = (0, 0);
     while at < input.len() {
         let n = sizes[i % sizes.len()].min(input.len() - at);
@@ -259,7 +255,7 @@ fn stream_parse<const N: usize>(
         at += n;
         i += 1;
     }
-    s.finish(memo)
+    s.finish()
 }
 
 /// Random chunk sizes: mostly small, sometimes 64 bytes.
@@ -300,7 +296,7 @@ fn streaming_matches_one_shot_on_random_corpus() {
         memo.clear();
         let one_shot = ARITH.parse_packrat(EXPR, &input, &mut memo);
         memo.clear();
-        let streamed = stream_parse(&input, &sizes, &mut memo);
+        let streamed = stream_parse::<8192>(&input, &sizes);
 
         match input.iter().position(|b| !ARITH_ALPHABET.contains(b)) {
             // A byte outside the alphabet is rejected at its own offset. The
@@ -338,7 +334,7 @@ fn streamed_recognise_matches_one_shot() {
         let sizes = random_chunking(&mut rng);
         memo.clear();
         let expected = ARITH.recognise_packrat(EXPR, &input, &mut memo);
-        let mut s: PackratStream<8192> = PackratStream::new(ARITH, EXPR);
+        let mut s: PackratStream<8192, 8192> = PackratStream::new(ARITH, EXPR);
         let mut at = 0;
         let mut streamed = Ok(());
         for n in sizes.iter().cycle() {
@@ -352,9 +348,8 @@ fn streamed_recognise_matches_one_shot() {
             }
             at = end;
         }
-        memo.clear();
         let got = match streamed {
-            Ok(()) => s.finish_recognise(&mut memo),
+            Ok(()) => s.finish_recognise(),
             Err(e) => Err(e),
         };
         match (expected, got) {
@@ -375,7 +370,7 @@ fn split_multi_byte_character_is_one_invalid_token_at_its_start() {
     );
     // The split falls inside `é`, either right after its lead byte or after the whole character.
     for split in [5, 6] {
-        let mut s: PackratStream<64> = PackratStream::new(ARITH, EXPR);
+        let mut s: PackratStream<64, 8192> = PackratStream::new(ARITH, EXPR);
         let r = s
             .feed(&input[..split])
             .and_then(|()| s.feed(&input[split..]));
@@ -396,10 +391,10 @@ fn grammar_with_a_multi_byte_literal_matches_across_a_split() {
     let input = "éx".as_bytes();
     let whole = ACCENT.parse(0, input).unwrap();
     for split in 1..input.len() {
-        let mut s: PackratStream<16> = PackratStream::new(ACCENT, 0);
+        let mut s: PackratStream<16, 16> = PackratStream::new(ACCENT, 0);
         s.feed(&input[..split]).unwrap();
         s.feed(&input[split..]).unwrap();
-        let tree = s.finish(&mut Memo::<16>::new()).unwrap();
+        let tree = s.finish().unwrap();
         assert_eq!(tree, whole, "split at {split}");
     }
 }
@@ -407,36 +402,118 @@ fn grammar_with_a_multi_byte_literal_matches_across_a_split() {
 #[test]
 fn memo_overflow_is_reported_through_the_stream() {
     let input = b"((1 + 2) * (3 - 4)) / (5 + 6)";
-    let r = stream_parse(input, &[3], &mut Memo::<4>::new());
+    let r = stream_parse::<4>(input, &[3]);
     assert_eq!(r, Err(StreamError::MemoFull));
 }
 
 #[test]
 fn an_error_is_sticky() {
-    let mut s: PackratStream<16> = PackratStream::new(ARITH, EXPR);
+    let mut s: PackratStream<16, 8192> = PackratStream::new(ARITH, EXPR);
     assert_eq!(s.feed(b"1 x"), Err(StreamError::Invalid { offset: 2 }));
     assert_eq!(s.feed(b"+2"), Err(StreamError::Invalid { offset: 2 }));
 }
 
 #[test]
-fn one_megabyte_through_64_byte_chunks_stops_at_the_token_buffer() {
-    // A fixed 4 KiB terminal buffer on the stack. The input is 1 MiB, and it
-    // is valid, so the stream must stop when the buffer is full. It must not
-    // keep reading.
-    let mut s: PackratStream<4096> = PackratStream::new(ARITH, EXPR);
-    let chunk = b"1+".repeat(32);
-    let mut chunks_read = 0;
-    let err = loop {
-        match s.feed(&chunk) {
-            Ok(()) => {
-                chunks_read += 1;
-                assert!(chunks_read < (1 << 20) / 64, "the buffer never filled");
+fn a_megabyte_streams_through_a_small_window() {
+    // The matcher keeps only the bytes it can still read. A valid input much
+    // longer than the 4 KiB window must therefore stream through, and the
+    // window never holds more than 4 KiB at once.
+    let handle = std::thread::Builder::new()
+        .stack_size(16 << 20)
+        .spawn(|| {
+            let mut s: PackratStream<4096, 256> = PackratStream::new(ARITH, EXPR);
+            let chunk = b"1+".repeat(32);
+            let chunks = (1 << 20) / chunk.len();
+            for _ in 0..chunks {
+                s.feed(&chunk).unwrap();
             }
-            Err(e) => break e,
+            // The chunks end with `+`, so one more term completes the sum.
+            s.feed(b"1").unwrap();
+            let tree = s.finish().unwrap();
+            assert_eq!(tree.end, (1 << 20) + 1);
+        })
+        .unwrap();
+    handle.join().unwrap();
+}
+
+/// Long arithmetic expressions, sometimes with one corrupted byte. They do not
+/// fit a 32-byte window in general, and they wrap it many times.
+fn random_long_expression(rng: &mut XorShift) -> Vec<u8> {
+    let terms = 1 + rng.below(60);
+    let mut out = Vec::new();
+    for t in 0..terms {
+        if t > 0 {
+            out.push(b"+-*/"[rng.below(4)]);
         }
-    };
-    assert_eq!(err, StreamError::TokensFull { offset: 4096 });
-    assert_eq!(chunks_read, 4096 / 64);
+        for _ in 0..=rng.below(3) {
+            out.push(b'0' + rng.below(10) as u8);
+        }
+    }
+    if rng.below(3) == 0 {
+        let at = rng.below(out.len());
+        out[at] = b"x)(+ "[rng.below(5)];
+    }
+    out
+}
+
+#[test]
+fn long_inputs_through_a_small_window_match_one_shot() {
+    // A 32-byte window and a 64-slot memo, against inputs of up to about 240
+    // bytes: the stream must wrap the ring and reclaim memo entries many times
+    // over. The one-shot memo would need an entry per call position. Whenever it accepts or rejects
+    // for a grammar reason, it must agree with the one-shot matcher. It may
+    // stop early with `TokensFull` or `MemoFull`, which is never a wrong answer.
+    let mut rng = XorShift(0x0DDB_A115_EED0_0003);
+    let mut accepted = 0;
+    let mut stopped = 0;
+    for _ in 0..1500 {
+        let input = random_long_expression(&mut rng);
+        let one_shot = ARITH.parse_packrat(EXPR, &input, &mut Memo::<8192>::new());
+        let mut s: PackratStream<32, 64> = PackratStream::new(ARITH, EXPR);
+        let mut result = Ok(());
+        for chunk in input.chunks(1 + rng.below(9)) {
+            result = s.feed(chunk);
+            if result.is_err() {
+                break;
+            }
+        }
+        let streamed = result.and_then(|()| s.finish());
+        match streamed {
+            Ok(tree) => {
+                accepted += 1;
+                assert_eq!(one_shot.ok(), Some(tree), "{input:?}");
+            }
+            Err(StreamError::TokensFull { .. } | StreamError::MemoFull) => stopped += 1,
+            Err(StreamError::Parse(e)) => {
+                assert_eq!(one_shot, Err(PackratError::Parse(e)), "{input:?}");
+            }
+            Err(StreamError::Invalid { .. }) => {
+                assert!(
+                    input.iter().any(|&b| !ARITH_ALPHABET.contains(&b)),
+                    "{input:?}"
+                );
+            }
+        }
+    }
+    assert!(accepted > 1000, "only {accepted} accepted");
+    assert!(stopped < 100, "{stopped} inputs stopped early");
+}
+
+#[test]
+fn a_decision_that_reaches_back_past_the_window_is_reported() {
+    // The choice starts at byte 0 and must keep it while the repeated `a` runs
+    // on. Once the window is full, the stream stops rather than buffer more.
+    const RUN: Grammar = Grammar::new(&[Rule {
+        name: "run",
+        body: Expr::Choice(&[
+            Expr::Seq(&[Expr::Repeat(&Expr::Lit(b"a")), Expr::Lit(b"b")]),
+            Expr::Lit(b"c"),
+        ]),
+    }]);
+    let mut s: PackratStream<64, 16> = PackratStream::new(RUN, 0);
+    let input = b"a".repeat(100);
+    let err = s.feed(&input).unwrap_err();
+    assert_eq!(err, StreamError::TokensFull { offset: 64 });
 }
 
 #[test]
@@ -454,7 +531,7 @@ fn large_input_within_the_token_buffer_matches_one_shot() {
             memo.clear();
             let one_shot = ARITH.parse_packrat(EXPR, &input, &mut memo);
             memo.clear();
-            let streamed = stream_parse(&input, &[64], &mut memo);
+            let streamed = stream_parse::<65536>(&input, &[64]);
             let one_shot = one_shot.unwrap();
             let streamed = streamed.unwrap();
             assert_eq!(one_shot, streamed);

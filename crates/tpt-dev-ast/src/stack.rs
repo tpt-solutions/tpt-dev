@@ -33,6 +33,16 @@ pub struct Stack<const DEPTH: usize> {
 
 impl<const DEPTH: usize> Stack<DEPTH> {
     /// Creates an empty stack. Fails to compile if `DEPTH` is zero.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_ast::Stack;
+    ///
+    /// let stack: Stack<4> = Stack::new();
+    /// assert!(stack.is_empty());
+    /// assert_eq!(stack.depth(), 0);
+    /// ```
     pub const fn new() -> Self {
         const { assert!(DEPTH > 0, "the stack needs room for at least one level") };
         Self {
@@ -42,21 +52,62 @@ impl<const DEPTH: usize> Stack<DEPTH> {
     }
 
     /// Current nesting depth.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_ast::Stack;
+    ///
+    /// let mut stack: Stack<4> = Stack::new();
+    /// stack.push_array().unwrap();
+    /// assert_eq!(stack.depth(), 1);
+    /// ```
     pub const fn depth(&self) -> usize {
         self.len
     }
 
     /// Returns `true` at the top level.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_ast::Stack;
+    ///
+    /// let mut stack: Stack<4> = Stack::new();
+    /// assert!(stack.is_empty());
+    /// stack.push_object().unwrap();
+    /// assert!(!stack.is_empty());
+    /// ```
     pub const fn is_empty(&self) -> bool {
         self.len == 0
     }
 
     /// Opens an array.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_ast::Stack;
+    ///
+    /// let mut stack: Stack<1> = Stack::new();
+    /// assert!(stack.push_array().is_ok());
+    /// assert!(stack.push_array().is_err());
+    /// ```
     pub fn push_array(&mut self) -> Result<(), DepthExceeded> {
         self.push(Container::Array)
     }
 
     /// Opens an object.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_ast::Stack;
+    ///
+    /// let mut stack: Stack<1> = Stack::new();
+    /// assert!(stack.push_object().is_ok());
+    /// assert_eq!(stack.depth(), 1);
+    /// ```
     pub fn push_object(&mut self) -> Result<(), DepthExceeded> {
         self.push(Container::Object)
     }

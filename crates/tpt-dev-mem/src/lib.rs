@@ -127,6 +127,15 @@ impl<const OFFSET: u32, const WIDTH: u32> Default for Field<OFFSET, WIDTH> {
 
 impl<const OFFSET: u32, const WIDTH: u32> Field<OFFSET, WIDTH> {
     /// Creates the field. Fails to compile if the field is empty.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_mem::Field;
+    ///
+    /// let field: Field<0, 8> = Field::new();
+    /// assert_eq!(field.get(0x1234u32), 0x34);
+    /// ```
     pub const fn new() -> Self {
         const { assert!(WIDTH > 0, "a field must be at least one bit wide") };
         Self
@@ -135,12 +144,28 @@ impl<const OFFSET: u32, const WIDTH: u32> Field<OFFSET, WIDTH> {
     /// The field mask, shifted into place, for register type `W`.
     ///
     /// Fails to compile if the field does not fit in `W`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_mem::Field;
+    ///
+    /// assert_eq!(Field::<4, 3>::new().mask::<u32>(), 0b111_0000);
+    /// ```
     pub fn mask<W: Word>(self) -> W {
         Self::check::<W>();
         Self::low_mask::<W>() << OFFSET
     }
 
     /// Extracts the field value from `reg`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_mem::Field;
+    ///
+    /// assert_eq!(Field::<4, 3>::new().get(0b0101_0000u32), 0b101);
+    /// ```
     pub fn get<W: Word>(self, reg: W) -> W {
         Self::check::<W>();
         (reg >> OFFSET) & Self::low_mask::<W>()
@@ -149,6 +174,16 @@ impl<const OFFSET: u32, const WIDTH: u32> Field<OFFSET, WIDTH> {
     /// Returns `reg` with the field replaced by `value`.
     ///
     /// Bits of `value` above the field width are discarded.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_mem::Field;
+    ///
+    /// assert_eq!(Field::<4, 3>::new().set(0u32, 0b011), 0b0011_0000);
+    /// // Bits of the value above the field width are dropped.
+    /// assert_eq!(Field::<0, 2>::new().set(0u8, 0b111), 0b11);
+    /// ```
     pub fn set<W: Word>(self, reg: W, value: W) -> W {
         Self::check::<W>();
         let mask = Self::low_mask::<W>() << OFFSET;
@@ -213,6 +248,19 @@ impl<W: Word, A> Reg<W, A> {
     /// * The memory must stay mapped and must not be used as ordinary memory.
     /// * Accesses must not race with other accesses to the same register
     ///   that the program has not synchronised.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_mem::{Reg, RW};
+    ///
+    /// let mut word: u32 = 0;
+    /// let addr = &mut word as *mut u32 as usize;
+    /// // SAFETY: `word` is a live, aligned u32 that nothing else touches in this example.
+    /// let reg: Reg<u32, RW> = unsafe { Reg::from_addr(addr) };
+    /// reg.write(7);
+    /// assert_eq!(reg.read(), 7);
+    /// ```
     pub unsafe fn from_addr(addr: usize) -> Self {
         debug_assert!(
             addr.is_multiple_of(core::mem::align_of::<W>()),
@@ -225,6 +273,18 @@ impl<W: Word, A> Reg<W, A> {
     }
 
     /// The address of the register.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_mem::{Reg, RW};
+    ///
+    /// let mut word: u32 = 0;
+    /// let addr = &mut word as *mut u32 as usize;
+    /// // SAFETY: `word` is a live, aligned u32 that nothing else touches in this example.
+    /// let reg: Reg<u32, RW> = unsafe { Reg::from_addr(addr) };
+    /// assert_eq!(reg.address(), addr);
+    /// ```
     pub fn address(&self) -> usize {
         self.addr as usize
     }
@@ -232,12 +292,36 @@ impl<W: Word, A> Reg<W, A> {
 
 impl<W: Word, A: Readable> Reg<W, A> {
     /// Reads the register with a volatile load.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_mem::{Reg, RO};
+    ///
+    /// let mut word: u32 = 5;
+    /// let addr = &mut word as *mut u32 as usize;
+    /// // SAFETY: `word` is a live, aligned u32 that nothing else touches in this example.
+    /// let reg: Reg<u32, RO> = unsafe { Reg::from_addr(addr) };
+    /// assert_eq!(reg.read(), 5);
+    /// ```
     pub fn read(&self) -> W {
         // SAFETY: `from_addr` guarantees that `addr` is valid and aligned for `W`.
         unsafe { ptr::read_volatile(self.addr) }
     }
 
     /// Reads the field `F` from the register.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_mem::{Field, Reg, RO};
+    ///
+    /// let mut word: u32 = 0b0101_0000;
+    /// let addr = &mut word as *mut u32 as usize;
+    /// // SAFETY: `word` is a live, aligned u32 that nothing else touches in this example.
+    /// let reg: Reg<u32, RO> = unsafe { Reg::from_addr(addr) };
+    /// assert_eq!(reg.read_field(Field::<4, 3>::new()), 0b101);
+    /// ```
     pub fn read_field<const OFFSET: u32, const WIDTH: u32>(
         &self,
         field: Field<OFFSET, WIDTH>,
@@ -248,6 +332,19 @@ impl<W: Word, A: Readable> Reg<W, A> {
 
 impl<W: Word, A: Writable> Reg<W, A> {
     /// Writes `value` to the register with a volatile store.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_mem::{Reg, RW};
+    ///
+    /// let mut word: u32 = 0;
+    /// let addr = &mut word as *mut u32 as usize;
+    /// // SAFETY: `word` is a live, aligned u32 that nothing else touches in this example.
+    /// let reg: Reg<u32, RW> = unsafe { Reg::from_addr(addr) };
+    /// reg.write(0xAB);
+    /// assert_eq!(reg.read(), 0xAB);
+    /// ```
     pub fn write(&self, value: W) {
         // SAFETY: `from_addr` guarantees that `addr` is valid and aligned for `W`.
         unsafe { ptr::write_volatile(self.addr, value) }
@@ -259,11 +356,37 @@ impl<W: Word, A: Readable + Writable> Reg<W, A> {
     ///
     /// This is a read-modify-write and is not atomic with respect to other
     /// masters on the bus.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_mem::{Reg, RW};
+    ///
+    /// let mut word: u32 = 0b001;
+    /// let addr = &mut word as *mut u32 as usize;
+    /// // SAFETY: `word` is a live, aligned u32 that nothing else touches in this example.
+    /// let reg: Reg<u32, RW> = unsafe { Reg::from_addr(addr) };
+    /// reg.modify(|v| v | 0b100);
+    /// assert_eq!(reg.read(), 0b101);
+    /// ```
     pub fn modify(&self, f: impl FnOnce(W) -> W) {
         self.write(f(self.read()));
     }
 
     /// Replaces the field `F` in the register with `value`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_mem::{Field, Reg, RW};
+    ///
+    /// let mut word: u32 = 0;
+    /// let addr = &mut word as *mut u32 as usize;
+    /// // SAFETY: `word` is a live, aligned u32 that nothing else touches in this example.
+    /// let reg: Reg<u32, RW> = unsafe { Reg::from_addr(addr) };
+    /// reg.modify_field(Field::<4, 3>::new(), 0b011);
+    /// assert_eq!(reg.read(), 0b0011_0000);
+    /// ```
     pub fn modify_field<const OFFSET: u32, const WIDTH: u32>(
         &self,
         field: Field<OFFSET, WIDTH>,
@@ -275,6 +398,20 @@ impl<W: Word, A: Readable + Writable> Reg<W, A> {
 
 impl<W: Word> Reg<W, W1C> {
     /// Clears the bits set in `mask`. Bits that are `0` in `mask` are left unchanged.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_mem::{Reg, W1C};
+    ///
+    /// let mut word: u32 = 0b1111;
+    /// let addr = &mut word as *mut u32 as usize;
+    /// // SAFETY: `word` is a live, aligned u32 that nothing else touches in this example.
+    /// let reg: Reg<u32, W1C> = unsafe { Reg::from_addr(addr) };
+    /// reg.clear_bits(0b0101);
+    /// // The hardware clears bits 0 and 2. Plain host memory keeps the written mask.
+    /// assert_eq!(reg.read(), 0b0101);
+    /// ```
     pub fn clear_bits(&self, mask: W) {
         self.write(mask);
     }

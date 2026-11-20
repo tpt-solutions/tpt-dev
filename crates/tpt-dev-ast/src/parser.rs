@@ -80,6 +80,14 @@ pub struct Parser<const DEPTH: usize> {
 
 impl<const DEPTH: usize> Parser<DEPTH> {
     /// Creates a parser ready for the first value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_ast::Parser;
+    ///
+    /// let _parser: Parser<8> = Parser::new();
+    /// ```
     pub const fn new() -> Self {
         Self {
             stack: Stack::new(),

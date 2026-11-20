@@ -30,6 +30,17 @@ impl Event {
 
     /// The fixed 16-byte encoding: a tag, a one-byte field, six unused bytes,
     /// then the 64-bit value (little-endian).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_replay::Event;
+    ///
+    /// let event = Event::Input { channel: 2, value: 5 };
+    /// let bytes = event.encode();
+    /// assert_eq!(bytes.len(), Event::ENCODED_LEN);
+    /// assert_eq!(Event::decode(bytes), Some(event));
+    /// ```
     pub const fn encode(&self) -> [u8; Self::ENCODED_LEN] {
         let mut out = [0u8; Self::ENCODED_LEN];
         match *self {
@@ -56,6 +67,20 @@ impl Event {
     }
 
     /// Decodes a 16-byte encoding. Returns `None` for an unknown tag.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_replay::Event;
+    ///
+    /// let mut bytes = [0u8; Event::ENCODED_LEN];
+    /// bytes[0] = 1; // tag 1 is a schedule step
+    /// bytes[1] = 3; // slot 3
+    /// assert_eq!(Event::decode(bytes), Some(Event::Schedule { slot: 3 }));
+    ///
+    /// // An unknown tag is not an event.
+    /// assert_eq!(Event::decode([9; Event::ENCODED_LEN]), None);
+    /// ```
     pub const fn decode(bytes: [u8; Self::ENCODED_LEN]) -> Option<Self> {
         let mut v = [0u8; 8];
         let mut i = 0;
@@ -78,6 +103,17 @@ impl Event {
     /// The event as a `tpt-dev-trace` record at timestamp `ts`, so a run can be
     /// exported through the trace pipeline. The span is the schedule step's
     /// slot, or zero for other events.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_replay::Event;
+    ///
+    /// let record = Event::Input { channel: 1, value: 42 }.to_trace_record(5);
+    /// assert_eq!(record.name, "replay.input");
+    /// assert_eq!(record.value, 42);
+    /// assert_eq!(record.ts, 5);
+    /// ```
     pub fn to_trace_record(&self, ts: u64) -> Record {
         let (name, span, value) = match *self {
             Event::Schedule { slot } => ("replay.schedule", u64::from(slot), 0),

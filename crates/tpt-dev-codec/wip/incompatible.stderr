@@ -1,5 +1,0 @@
-error[E0080]: evaluation panicked: assertion failed: V2.extends(&V1)
- --> tests/ui/incompatible.rs:7:15
-  |
-7 | const _: () = assert!(V2.extends(&V1));
-  |               ^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed here

@@ -69,6 +69,23 @@ impl<'s, T: Copy + Default, const B: usize> Lane<'s, T, B> {
     /// Creates a lane that sends to `sink` under `policy`.
     ///
     /// Fails to compile if `B` is zero.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_sink::{Busy, Lane, Policy, Sink};
+    ///
+    /// struct Null;
+    /// impl Sink<u8> for Null {
+    ///     fn send(&mut self, _batch: &[u8]) -> Result<(), Busy> {
+    ///         Ok(())
+    ///     }
+    /// }
+    ///
+    /// let mut sink = Null;
+    /// let lane: Lane<u8, 3> = Lane::new(&mut sink, Policy::Reject);
+    /// assert_eq!(lane.stats().pending, 0);
+    /// ```
     pub fn new(sink: &'s mut dyn Sink<T>, policy: Policy) -> Self {
         const { assert!(B > 0, "a lane needs room for at least one message") };
         Self {
@@ -85,6 +102,26 @@ impl<'s, T: Copy + Default, const B: usize> Lane<'s, T, B> {
     ///
     /// Returns `Err(Busy)` only with [`Policy::Reject`], when the batch is full
     /// and the sink refuses it. With the drop policies it always returns `Ok`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_sink::{Busy, Lane, Policy, Sink};
+    ///
+    /// struct Blocked;
+    /// impl Sink<u8> for Blocked {
+    ///     fn send(&mut self, _batch: &[u8]) -> Result<(), Busy> {
+    ///         Err(Busy)
+    ///     }
+    /// }
+    ///
+    /// let mut sink = Blocked;
+    /// let mut lane: Lane<u8, 1> = Lane::new(&mut sink, Policy::Reject);
+    /// // The first message fills the batch, and the blocked sink keeps it.
+    /// assert!(lane.push(1).is_ok());
+    /// // The batch is still full, so the Reject policy refuses the next message.
+    /// assert_eq!(lane.push(2), Err(Busy));
+    /// ```
     pub fn push(&mut self, value: T) -> Result<(), Busy> {
         if self.len == B {
             // An earlier send was refused and the batch is still full.
@@ -114,11 +151,51 @@ impl<'s, T: Copy + Default, const B: usize> Lane<'s, T, B> {
     }
 
     /// Sends any partly filled batch now. Returns `Err(Busy)` if the sink refuses it.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_sink::{Busy, Lane, Policy, Sink};
+    ///
+    /// struct Blocked;
+    /// impl Sink<u8> for Blocked {
+    ///     fn send(&mut self, _batch: &[u8]) -> Result<(), Busy> {
+    ///         Err(Busy)
+    ///     }
+    /// }
+    ///
+    /// let mut sink = Blocked;
+    /// let mut lane: Lane<u8, 2> = Lane::new(&mut sink, Policy::DropNewest);
+    /// lane.push(1).unwrap();
+    /// assert_eq!(lane.flush(), Err(Busy));
+    /// assert_eq!(lane.stats().pending, 1);
+    /// ```
     pub fn flush(&mut self) -> Result<(), Busy> {
         self.send_batch()
     }
 
     /// The lane's counters.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_sink::{Busy, Lane, Policy, Sink};
+    ///
+    /// struct Null;
+    /// impl Sink<u8> for Null {
+    ///     fn send(&mut self, _batch: &[u8]) -> Result<(), Busy> {
+    ///         Ok(())
+    ///     }
+    /// }
+    ///
+    /// let mut sink = Null;
+    /// let mut lane: Lane<u8, 2> = Lane::new(&mut sink, Policy::DropNewest);
+    /// lane.push(1).unwrap();
+    /// assert_eq!(lane.stats().pending, 1);
+    /// lane.push(2).unwrap();
+    /// let stats = lane.stats();
+    /// assert_eq!((stats.sent, stats.pending), (2, 0));
+    /// ```
     pub const fn stats(&self) -> LaneStats {
         LaneStats {
             sent: self.sent,

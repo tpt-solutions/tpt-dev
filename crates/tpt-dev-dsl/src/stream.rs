@@ -1,21 +1,21 @@
 //! Streaming front end for the packrat matcher. Byte chunks go through
 //! `tpt-dev-ast`'s [`Feed`] driver, which calls [`GrammarLexer`]. Each byte of
-//! the grammar's alphabet becomes one terminal. Terminals are kept in a
-//! fixed-capacity buffer, and the packrat matcher runs over that buffer when
-//! the input ends.
+//! the grammar's alphabet becomes one terminal. The bytes go into a ring
+//! buffer, and the resumable matcher in `resumable.rs` runs over them as they
+//! arrive.
 //!
-//! Packrat matching needs random access to earlier terminals, because a
-//! `Choice` can backtrack over any amount of input. So the matcher cannot run
-//! before the end of the input, and the terminal buffer holds the whole
-//! accepted input. Its capacity is fixed by the caller. Input that needs more
-//! terminals than that is rejected with [`StreamError::TokensFull`], never
-//! buffered without limit.
+//! The matcher keeps only the bytes it can still read. A `Choice` can backtrack
+//! to where it started, so the ring must hold the input from the lowest
+//! position still under decision to the newest byte. Its size is fixed by the
+//! caller. If that span is longer, the stream stops with
+//! [`StreamError::TokensFull`] and never buffers without limit.
 
 use tpt_dev_ast::{Fault, Feed, Lexer, ParseError as AstError, Step};
 
 use crate::grammar::{Expr, Grammar};
-use crate::matcher::{ParseError, Tree};
-use crate::packrat::{Memo, PackratError};
+use crate::matcher::{Expected, ParseError, Tree};
+use crate::packrat::MemoFull;
+use crate::resumable::{Input, Machine};
 
 /// Classifies bytes as terminals of a grammar's alphabet. The alphabet is every
 /// byte named by a `Lit` or a `Range` in the grammar.
@@ -43,6 +43,17 @@ pub struct GrammarLexer {
 
 impl GrammarLexer {
     /// The lexer for `grammar`'s alphabet.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_ast::{Lexer, Step};
+    /// use tpt_dev_dsl::{Expr, Grammar, GrammarLexer, Rule};
+    /// const PLUS: Grammar = Grammar::new(&[Rule { name: "plus", body: Expr::Lit(b"+") }]);
+    /// let lexer = GrammarLexer::new(&PLUS);
+    /// assert_eq!(lexer.lex(b"+", false), Step::Token { token: b'+', len: 1 });
+    /// assert_eq!(lexer.lex(b"x", false), Step::Invalid { at: 0 });
+    /// ```
     pub fn new(grammar: &Grammar) -> Self {
         let mut alphabet = [0; 4];
         for rule in grammar.rules() {
@@ -83,7 +94,7 @@ fn mark(e: &Expr, set: &mut [u64; 4]) {
 }
 
 impl Lexer for GrammarLexer {
-    /// A terminal: the byte, which is also its position in the terminal buffer.
+    /// A terminal: the byte itself.
     type Token<'a> = u8;
 
     fn lex(&self, input: &[u8], _eof: bool) -> Step<u8> {
@@ -103,8 +114,9 @@ pub enum StreamError {
         /// Offset of the byte, counted over the whole stream.
         offset: usize,
     },
-    /// The terminal buffer is full. The stream stopped at `offset`, and the
-    /// bytes after it were not read.
+    /// The matcher needs more than `TOKENS` bytes at once. The bytes from the
+    /// lowest position still under decision to the newest one do not fit. The
+    /// stream stopped at `offset`, and the bytes from there on were not read.
     TokensFull {
         /// Offset of the first byte that did not fit.
         offset: usize,
@@ -112,23 +124,29 @@ pub enum StreamError {
     /// The terminals do not match the grammar. This is the matcher's own error,
     /// with positions counted in terminals (bytes).
     Parse(ParseError),
-    /// The memo table filled up before matching finished.
+    /// The memo table filled up before matching finished, even after the
+    /// entries that could no longer be used were dropped.
     MemoFull,
 }
 
 /// Parses a stream of byte chunks against one rule of a grammar.
 ///
-/// `TOKENS` is the terminal buffer's capacity, in bytes, and it is stored in
-/// the struct, so a stack-allocated stream uses a fixed amount of memory.
+/// `TOKENS` is the ring buffer's capacity in bytes. The stream keeps only the
+/// bytes the matcher can still read, so `TOKENS` bounds how far a decision may
+/// reach back, not how long the input is. `MEMO` is the number of memo slots.
+/// Memo entries below the lowest live position are dropped when the table
+/// fills, so `MEMO` bounds the live entries, not the whole input. The matcher's
+/// state lives on the heap.
 ///
 /// Feed chunks with [`feed`](Self::feed), then call [`finish`](Self::finish)
-/// or [`finish_recognise`](Self::finish_recognise) with a memo table. The
-/// results match [`Grammar::parse_packrat`] and [`Grammar::recognise_packrat`]
-/// on the whole input. Once a call returns an error, every later call returns
-/// it too.
+/// or [`finish_recognise`](Self::finish_recognise). The results match
+/// [`Grammar::parse_packrat`] and [`Grammar::recognise_packrat`] on the whole
+/// input, except that the stream can succeed where the one-shot matcher with
+/// the same memo size runs out of memo slots. Once a call returns an error,
+/// every later call returns it too.
 ///
 /// ```
-/// use tpt_dev_dsl::{Expr, Grammar, Memo, PackratStream, Rule};
+/// use tpt_dev_dsl::{Expr, Grammar, PackratStream, Rule};
 ///
 /// const DIGIT: Expr = Expr::Range(b'0', b'9');
 /// const NUMBER: Grammar = Grammar::new(&[Rule {
@@ -136,105 +154,251 @@ pub enum StreamError {
 ///     body: Expr::Seq(&[DIGIT, Expr::Repeat(&DIGIT)]),
 /// }]);
 ///
-/// let mut stream: PackratStream<64> = PackratStream::new(NUMBER, 0);
+/// let mut stream: PackratStream<64, 16> = PackratStream::new(NUMBER, 0);
 /// stream.feed(b"20").unwrap();
 /// stream.feed(b"24").unwrap();
-/// let mut memo = Memo::<16>::new();
-/// let tree = stream.finish(&mut memo).unwrap();
+/// let tree = stream.finish().unwrap();
 /// assert_eq!((tree.start, tree.end), (0, 4));
 /// ```
-pub struct PackratStream<const TOKENS: usize> {
-    grammar: Grammar,
-    rule: usize,
+pub struct PackratStream<const TOKENS: usize, const MEMO: usize> {
     // A terminal is never split across chunks, so the driver never holds a
     // partial token and its carry buffer stays unused. It needs one byte.
     feed: Feed<GrammarLexer, 1>,
-    tokens: [u8; TOKENS],
-    len: usize,
-    /// Set by the sink when the terminal buffer is full.
-    full: bool,
+    /// Ring buffer holding the bytes at positions `base..end`.
+    window: [u8; TOKENS],
+    /// Lowest position still kept. Bytes below it have been dropped.
+    base: usize,
+    /// One past the last byte read.
+    end: usize,
+    /// Set by `finish`: no more bytes will arrive.
+    eof: bool,
+    machine: Machine,
     failed: Option<StreamError>,
 }
 
-/// A sink that stores each terminal, or stops the driver when the buffer is full.
-fn store<'a, const T: usize>(
-    tokens: &'a mut [u8; T],
-    len: &'a mut usize,
-    full: &'a mut bool,
-) -> impl FnMut(u8) -> Result<(), Fault> + 'a {
-    move |b| {
-        if *len == T {
-            *full = true;
-            return Err(Fault::Syntax);
-        }
-        tokens[*len] = b;
-        *len += 1;
-        Ok(())
-    }
-}
-
-impl<const TOKENS: usize> PackratStream<TOKENS> {
+impl<const TOKENS: usize, const MEMO: usize> PackratStream<TOKENS, MEMO> {
     /// A stream that will match rule `rule` of `grammar`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_dsl::{Expr, Grammar, Rule};
+    /// const DIGIT: Expr = Expr::Range(b'0', b'9');
+    /// const NUMBER: Grammar = Grammar::new(&[Rule {
+    ///     name: "number",
+    ///     body: Expr::Seq(&[DIGIT, Expr::Repeat(&DIGIT)]),
+    /// }]);
+    /// use tpt_dev_dsl::PackratStream;
+    /// let mut stream: PackratStream<16, 16> = PackratStream::new(NUMBER, 0);
+    /// stream.feed(b"20").unwrap();
+    /// stream.feed(b"24").unwrap();
+    /// let tree = stream.finish().unwrap();
+    /// assert_eq!((tree.start, tree.end), (0, 4));
+    /// ```
     pub fn new(grammar: Grammar, rule: usize) -> Self {
         Self {
             feed: Feed::new(GrammarLexer::new(&grammar)),
-            grammar,
-            rule,
-            tokens: [0; TOKENS],
-            len: 0,
-            full: false,
+            window: [0; TOKENS],
+            base: 0,
+            end: 0,
+            eof: false,
+            machine: Machine::new(grammar, rule, MEMO),
             failed: None,
         }
     }
 
     /// Total bytes read so far.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_dsl::{Expr, Grammar, Rule};
+    /// const DIGIT: Expr = Expr::Range(b'0', b'9');
+    /// const NUMBER: Grammar = Grammar::new(&[Rule {
+    ///     name: "number",
+    ///     body: Expr::Seq(&[DIGIT, Expr::Repeat(&DIGIT)]),
+    /// }]);
+    /// use tpt_dev_dsl::PackratStream;
+    /// let mut stream: PackratStream<16, 16> = PackratStream::new(NUMBER, 0);
+    /// assert_eq!(stream.consumed(), 0);
+    /// stream.feed(b"20").unwrap();
+    /// assert_eq!(stream.consumed(), 2);
+    /// ```
     pub fn consumed(&self) -> usize {
         self.feed.consumed()
     }
 
     /// Feeds the next chunk. Chunks may split the input anywhere.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_dsl::{Expr, Grammar, Rule};
+    /// const DIGIT: Expr = Expr::Range(b'0', b'9');
+    /// const NUMBER: Grammar = Grammar::new(&[Rule {
+    ///     name: "number",
+    ///     body: Expr::Seq(&[DIGIT, Expr::Repeat(&DIGIT)]),
+    /// }]);
+    /// use tpt_dev_dsl::PackratStream;
+    /// let mut stream: PackratStream<16, 16> = PackratStream::new(NUMBER, 0);
+    /// // Chunks may split the input anywhere, here inside the number.
+    /// stream.feed(b"2").unwrap();
+    /// stream.feed(b"0").unwrap();
+    /// stream.feed(b"24").unwrap();
+    /// assert!(stream.finish_recognise().unwrap());
+    /// ```
     pub fn feed(&mut self, chunk: &[u8]) -> Result<(), StreamError> {
         self.check()?;
-        let result = {
-            let mut sink = store(&mut self.tokens, &mut self.len, &mut self.full);
-            self.feed.feed(chunk, &mut sink)
-        };
-        self.settle(result)
+        let result = self.push(chunk);
+        self.record(result)
     }
 
-    /// Declares the end of input, then matches rule `rule` over all of it.
-    /// Returns the same tree as [`Grammar::parse_packrat`] on the whole input.
-    pub fn finish<const N: usize>(mut self, memo: &mut Memo<N>) -> Result<Tree, StreamError> {
-        self.end()?;
-        let input = &self.tokens[..self.len];
-        self.grammar
-            .parse_packrat(self.rule, input, memo)
-            .map_err(|e| match e {
-                PackratError::Parse(p) => StreamError::Parse(p),
-                PackratError::MemoFull => StreamError::MemoFull,
-            })
+    /// Declares the end of input, then returns the tree of rule `rule` over
+    /// all of it. Same result as [`Grammar::parse_packrat`] on the whole input.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_dsl::{Expr, Grammar, Rule};
+    /// const DIGIT: Expr = Expr::Range(b'0', b'9');
+    /// const NUMBER: Grammar = Grammar::new(&[Rule {
+    ///     name: "number",
+    ///     body: Expr::Seq(&[DIGIT, Expr::Repeat(&DIGIT)]),
+    /// }]);
+    /// use tpt_dev_dsl::PackratStream;
+    /// let mut stream: PackratStream<16, 16> = PackratStream::new(NUMBER, 0);
+    /// stream.feed(b"20").unwrap();
+    /// stream.feed(b"24").unwrap();
+    /// let tree = stream.finish().unwrap();
+    /// assert_eq!(tree.end, 4);
+    /// ```
+    pub fn finish(mut self) -> Result<Tree, StreamError> {
+        self.check()?;
+        let result = self.close();
+        self.record(result)?;
+        let total = self.end;
+        let root = self.machine.root().unwrap_or(None);
+        let (furthest, expected) = self.machine.furthest().unwrap_or((0, Expected::EndOfInput));
+        match root {
+            Some(end) if end == total => Ok(self.machine.into_tree(total)),
+            Some(end) if furthest > end => Err(StreamError::Parse(ParseError {
+                position: furthest,
+                expected,
+            })),
+            Some(end) => Err(StreamError::Parse(ParseError {
+                position: end,
+                expected: Expected::EndOfInput,
+            })),
+            None => Err(StreamError::Parse(ParseError {
+                position: furthest,
+                expected,
+            })),
+        }
     }
 
     /// Declares the end of input, then checks that rule `rule` matches all of
     /// it. Same result as [`Grammar::recognise_packrat`] on the whole input.
-    pub fn finish_recognise<const N: usize>(
-        mut self,
-        memo: &mut Memo<N>,
-    ) -> Result<bool, StreamError> {
-        self.end()?;
-        let input = &self.tokens[..self.len];
-        self.grammar
-            .recognise_packrat(self.rule, input, memo)
-            .map_err(|_| StreamError::MemoFull)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_dsl::{Expr, Grammar, Rule};
+    /// const DIGIT: Expr = Expr::Range(b'0', b'9');
+    /// const NUMBER: Grammar = Grammar::new(&[Rule {
+    ///     name: "number",
+    ///     body: Expr::Seq(&[DIGIT, Expr::Repeat(&DIGIT)]),
+    /// }]);
+    /// use tpt_dev_dsl::PackratStream;
+    /// let mut stream: PackratStream<16, 16> = PackratStream::new(NUMBER, 0);
+    /// stream.feed(b"20").unwrap();
+    /// stream.feed(b"24").unwrap();
+    /// assert!(stream.finish_recognise().unwrap());
+    /// ```
+    pub fn finish_recognise(mut self) -> Result<bool, StreamError> {
+        self.check()?;
+        let result = self.close();
+        self.record(result)?;
+        let total = self.end;
+        Ok(self.machine.root() == Some(Some(total)))
     }
 
-    fn end(&mut self) -> Result<(), StreamError> {
-        self.check()?;
+    /// Feeds the bytes one at a time, and runs the matcher when the chunk ends.
+    fn push(&mut self, chunk: &[u8]) -> Result<(), StreamError> {
+        for &byte in chunk {
+            if self.end - self.base == TOKENS {
+                self.advance()?;
+                self.compact();
+                if self.end - self.base == TOKENS {
+                    return Err(StreamError::TokensFull { offset: self.end });
+                }
+            }
+            let at = self.end;
+            let mut full = false;
+            let Self {
+                feed, window, base, ..
+            } = self;
+            let mut sink = |t: u8| {
+                if at - *base == TOKENS {
+                    full = true;
+                    return Err(Fault::Syntax);
+                }
+                window[at % TOKENS] = t;
+                Ok(())
+            };
+            if let Err(e) = feed.feed(&[byte], &mut sink) {
+                return Err(lex_error(e, full));
+            }
+            self.end += 1;
+        }
+        self.advance()
+    }
+
+    /// Declares the end of input, and runs the matcher over what is left.
+    fn close(&mut self) -> Result<(), StreamError> {
+        self.advance()?;
+        self.compact();
+        self.eof = true;
+        let at = self.end;
+        let base = self.base;
+        let mut full = false;
         let result = {
-            let mut sink = store(&mut self.tokens, &mut self.len, &mut self.full);
-            self.feed.finish(&mut sink)
+            let Self {
+                feed, window, end, ..
+            } = self;
+            let mut sink = |t: u8| {
+                if at - base == TOKENS {
+                    full = true;
+                    return Err(Fault::Syntax);
+                }
+                window[at % TOKENS] = t;
+                *end += 1;
+                Ok(())
+            };
+            feed.finish(&mut sink)
         };
-        self.settle(result)
+        if let Err(e) = result {
+            return Err(lex_error(e, full));
+        }
+        self.advance()
+    }
+
+    /// Runs the matcher as far as the bytes read so far allow.
+    fn advance(&mut self) -> Result<(), StreamError> {
+        let input = Input {
+            ring: &self.window,
+            end: self.end,
+            eof: self.eof,
+        };
+        self.machine
+            .run(&input)
+            .map(|_| ())
+            .map_err(|MemoFull| StreamError::MemoFull)
+    }
+
+    /// Drops the bytes the matcher can no longer read.
+    fn compact(&mut self) {
+        let floor = self.machine.floor().unwrap_or(self.end).min(self.end);
+        self.base = self.base.max(floor);
     }
 
     fn check(&self) -> Result<(), StreamError> {
@@ -244,26 +408,29 @@ impl<const TOKENS: usize> PackratStream<TOKENS> {
         }
     }
 
-    fn settle(&mut self, result: Result<(), AstError>) -> Result<(), StreamError> {
-        let Err(e) = result else {
-            return Ok(());
-        };
-        let offset = match e {
-            AstError::Lex { offset }
-            | AstError::Syntax { offset }
-            | AstError::TrailingData { offset }
-            | AstError::DepthExceeded { offset, .. }
-            | AstError::TokenTooLong { offset, .. }
-            | AstError::UnexpectedEnd { offset } => offset,
-        };
-        // Only the sink's `Syntax` fault means the buffer is full. Any other
-        // error comes from the lexer.
-        let err = if self.full {
-            StreamError::TokensFull { offset }
-        } else {
-            StreamError::Invalid { offset }
-        };
-        self.failed = Some(err.clone());
-        Err(err)
+    /// Makes an error sticky, so every later call returns it.
+    fn record<T>(&mut self, result: Result<T, StreamError>) -> Result<T, StreamError> {
+        if let Err(e) = &result {
+            self.failed = Some(e.clone());
+        }
+        result
+    }
+}
+
+/// Turns a driver error into a stream error. `full` says the sink refused a
+/// terminal because the ring is full. Any other error comes from the lexer.
+fn lex_error(e: AstError, full: bool) -> StreamError {
+    let offset = match e {
+        AstError::Lex { offset }
+        | AstError::Syntax { offset }
+        | AstError::TrailingData { offset }
+        | AstError::DepthExceeded { offset, .. }
+        | AstError::TokenTooLong { offset, .. }
+        | AstError::UnexpectedEnd { offset } => offset,
+    };
+    if full {
+        StreamError::TokensFull { offset }
+    } else {
+        StreamError::Invalid { offset }
     }
 }

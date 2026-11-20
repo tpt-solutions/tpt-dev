@@ -8,7 +8,8 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 readme = "README.md"
-categories = ["no-std"]
+keywords = ["replay", "record", "deterministic", "debugging"]
+categories = ["development-tools::debugging", "development-tools::testing", "embedded", "no-std"]
 
 [features]
 default = []
@@ -17,6 +18,10 @@ std = []
 [dependencies]
 tpt-dev-async = { version = "0.0.0", path = "../tpt-dev-async" }
 tpt-dev-trace = { version = "0.0.0", path = "../tpt-dev-trace" }
+
+[dev-dependencies]
+# The replay_spec example checks recorded runs against an automata machine.
+tpt-dev-automata = { version = "0.0.0", path = "../tpt-dev-automata" }
 
 [lints]
 workspace = true

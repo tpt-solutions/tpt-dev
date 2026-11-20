@@ -28,6 +28,15 @@ pub enum Op {
 
 impl Op {
     /// How many inputs the operation takes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_dispatch::Op;
+    ///
+    /// assert_eq!(Op::Add.arity(), 2);
+    /// assert_eq!(Op::Sum.arity(), 1);
+    /// ```
     pub const fn arity(self) -> usize {
         match self {
             Op::Add | Op::Mul => 2,
@@ -129,6 +138,16 @@ pub struct MockAccelerator {
 
 impl MockAccelerator {
     /// An accelerator that supports `ops`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_dispatch::{Device, MockAccelerator, Op};
+    ///
+    /// let acc = MockAccelerator::new(&[Op::Relu]);
+    /// assert!(acc.supports(Op::Relu));
+    /// assert!(!acc.supports(Op::Add));
+    /// ```
     pub fn new(ops: &[Op]) -> Self {
         Self {
             ops: ops.to_vec(),

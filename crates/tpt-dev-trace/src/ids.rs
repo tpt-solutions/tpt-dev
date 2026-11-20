@@ -27,6 +27,18 @@ impl Context {
 
     /// Encodes the context into 16 bytes, little-endian. The layout is fixed, so
     /// it can be sent in a packet header or stored in a fixed field.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_trace::{Context, SpanId, TraceId};
+    ///
+    /// let ctx = Context { trace: TraceId(1), span: SpanId(2) };
+    /// let bytes = ctx.encode();
+    /// assert_eq!(bytes.len(), Context::ENCODED_LEN);
+    /// assert_eq!(bytes[0], 1);
+    /// assert_eq!(bytes[8], 2);
+    /// ```
     pub const fn encode(&self) -> [u8; Self::ENCODED_LEN] {
         let t = self.trace.0.to_le_bytes();
         let s = self.span.0.to_le_bytes();
@@ -37,6 +49,16 @@ impl Context {
     }
 
     /// Decodes a context produced by [`Context::encode`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_trace::{Context, SpanId, TraceId};
+    ///
+    /// let ctx = Context::decode([1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0]);
+    /// assert_eq!(ctx.trace, TraceId(1));
+    /// assert_eq!(ctx.span, SpanId(2));
+    /// ```
     pub const fn decode(bytes: [u8; Self::ENCODED_LEN]) -> Self {
         let mut t = [0u8; 8];
         let mut s = [0u8; 8];
@@ -83,6 +105,16 @@ pub struct AtomicIds {
 
 impl AtomicIds {
     /// Creates a generator for device `node`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_trace::{AtomicIds, IdSource};
+    ///
+    /// let ids = AtomicIds::new(0x2A);
+    /// let span = ids.next_span();
+    /// assert_eq!(span.0 >> 32, 0x2A);
+    /// ```
     #[cfg(not(loom))]
     pub const fn new(node: u32) -> Self {
         Self {
@@ -92,6 +124,16 @@ impl AtomicIds {
     }
 
     /// Creates a generator for device `node`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_trace::{AtomicIds, IdSource};
+    ///
+    /// let ids = AtomicIds::new(0x2A);
+    /// let span = ids.next_span();
+    /// assert_eq!(span.0 >> 32, 0x2A);
+    /// ```
     #[cfg(loom)]
     pub fn new(node: u32) -> Self {
         Self {

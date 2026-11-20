@@ -8,7 +8,8 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 readme = "README.md"
-categories = ["no-std"]
+keywords = ["streaming", "parser", "json", "zero-copy", "ast"]
+categories = ["no-std", "no-std::no-alloc", "parser-implementations", "embedded"]
 
 [features]
 default = []

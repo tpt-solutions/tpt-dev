@@ -54,6 +54,15 @@ impl Record {
     };
 
     /// The context of the span this record belongs to.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_trace::{Context, Record, SpanId, TraceId};
+    ///
+    /// let r = Record { trace: TraceId(9), span: SpanId(4), ..Record::EMPTY };
+    /// assert_eq!(r.context(), Context { trace: TraceId(9), span: SpanId(4) });
+    /// ```
     pub const fn context(&self) -> Context {
         Context {
             trace: self.trace,

@@ -84,6 +84,20 @@ impl Grammar {
     /// Parses all of `input` with rule `rule`, and returns the parse tree.
     ///
     /// Needs `alloc` for the tree. Use [`Grammar::recognise`] to check input without one.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_dsl::{Expr, Grammar, Rule};
+    /// const DIGIT: Expr = Expr::Range(b'0', b'9');
+    /// const NUMBER: Grammar = Grammar::new(&[Rule {
+    ///     name: "number",
+    ///     body: Expr::Seq(&[DIGIT, Expr::Repeat(&DIGIT)]),
+    /// }]);
+    /// let tree = NUMBER.parse(0, b"2024").unwrap();
+    /// assert_eq!((tree.rule, tree.start, tree.end), (0, 0, 4));
+    /// assert!(NUMBER.parse(0, b"20x4").is_err());
+    /// ```
     pub fn parse(&self, rule: usize, input: &[u8]) -> Result<Tree, ParseError> {
         let mut ctx = Ctx {
             grammar: self,
@@ -120,6 +134,19 @@ impl Grammar {
 
     /// Returns `true` if rule `rule` matches all of `input`. Builds no tree,
     /// so it does not allocate.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_dsl::{Expr, Grammar, Rule};
+    /// const DIGIT: Expr = Expr::Range(b'0', b'9');
+    /// const NUMBER: Grammar = Grammar::new(&[Rule {
+    ///     name: "number",
+    ///     body: Expr::Seq(&[DIGIT, Expr::Repeat(&DIGIT)]),
+    /// }]);
+    /// assert!(NUMBER.recognise(0, b"2024"));
+    /// assert!(!NUMBER.recognise(0, b"20x4"));
+    /// ```
     pub fn recognise(&self, rule: usize, input: &[u8]) -> bool {
         let mut ctx = Ctx {
             grammar: self,

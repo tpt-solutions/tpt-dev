@@ -39,6 +39,17 @@ impl<T, const N: usize> Spsc<T, N> {
     ///
     /// Fails to compile unless `N` is a non-zero power of two.
     #[cfg(not(loom))]
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_lock::Spsc;
+    ///
+    /// let mut queue: Spsc<u8, 4> = Spsc::new();
+    /// let (mut tx, mut rx) = queue.split();
+    /// tx.push(7).unwrap();
+    /// assert_eq!(rx.pop(), Some(7));
+    /// ```
     pub const fn new() -> Self {
         const {
             assert!(
@@ -55,6 +66,17 @@ impl<T, const N: usize> Spsc<T, N> {
 
     /// Creates an empty queue.
     #[cfg(loom)]
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_lock::Spsc;
+    ///
+    /// let mut queue: Spsc<u8, 4> = Spsc::new();
+    /// let (mut tx, mut rx) = queue.split();
+    /// tx.push(7).unwrap();
+    /// assert_eq!(rx.pop(), Some(7));
+    /// ```
     pub fn new() -> Self {
         const {
             assert!(
@@ -70,11 +92,31 @@ impl<T, const N: usize> Spsc<T, N> {
     }
 
     /// The fixed capacity of the queue.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_lock::Spsc;
+    ///
+    /// let queue: Spsc<u8, 8> = Spsc::new();
+    /// assert_eq!(queue.capacity(), 8);
+    /// ```
     pub const fn capacity(&self) -> usize {
         N
     }
 
     /// Returns the producer and consumer handles.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_lock::Spsc;
+    ///
+    /// let mut queue: Spsc<u8, 2> = Spsc::new();
+    /// let (mut tx, mut rx) = queue.split();
+    /// assert!(tx.push(1).is_ok());
+    /// assert_eq!(rx.pop(), Some(1));
+    /// ```
     pub fn split(&mut self) -> (Producer<'_, T, N>, Consumer<'_, T, N>) {
         (Producer { q: self }, Consumer { q: self })
     }
@@ -107,6 +149,19 @@ pub struct Producer<'a, T, const N: usize> {
 
 impl<T, const N: usize> Producer<'_, T, N> {
     /// Pushes `value`, or returns it back if the queue is full.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_lock::Spsc;
+    ///
+    /// let mut queue: Spsc<u8, 2> = Spsc::new();
+    /// let (mut tx, _rx) = queue.split();
+    /// assert!(tx.push(1).is_ok());
+    /// assert!(tx.push(2).is_ok());
+    /// // The queue holds two items, so the third comes back.
+    /// assert_eq!(tx.push(3), Err(3));
+    /// ```
     pub fn push(&mut self, value: T) -> Result<(), T> {
         let tail = self.q.tail.load(Ordering::Relaxed);
         // Acquire: the consumer has finished reading the slot we are about to reuse.
@@ -123,6 +178,16 @@ impl<T, const N: usize> Producer<'_, T, N> {
     }
 
     /// The fixed capacity of the queue.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_lock::Spsc;
+    ///
+    /// let mut queue: Spsc<u8, 4> = Spsc::new();
+    /// let (tx, _rx) = queue.split();
+    /// assert_eq!(tx.capacity(), 4);
+    /// ```
     pub const fn capacity(&self) -> usize {
         N
     }
@@ -135,6 +200,18 @@ pub struct Consumer<'a, T, const N: usize> {
 
 impl<T, const N: usize> Consumer<'_, T, N> {
     /// Pops the oldest item, or returns `None` if the queue is empty.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_lock::Spsc;
+    ///
+    /// let mut queue: Spsc<u8, 2> = Spsc::new();
+    /// let (mut tx, mut rx) = queue.split();
+    /// tx.push(9).unwrap();
+    /// assert_eq!(rx.pop(), Some(9));
+    /// assert_eq!(rx.pop(), None);
+    /// ```
     pub fn pop(&mut self) -> Option<T> {
         let head = self.q.head.load(Ordering::Relaxed);
         // Acquire: the producer's write to the slot at `head` is visible.

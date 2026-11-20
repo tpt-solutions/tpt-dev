@@ -9,6 +9,7 @@ extern crate std;
 mod grammar;
 mod matcher;
 mod packrat;
+mod resumable;
 mod stream;
 
 pub use grammar::{Expr, Grammar, Rule};

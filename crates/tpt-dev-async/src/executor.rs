@@ -85,6 +85,16 @@ impl<const N: usize> Default for Executor<'_, N> {
 
 impl<'a, const N: usize> Executor<'a, N> {
     /// Creates an executor with no tasks. Fails to compile unless `1 <= N <= 32`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use core::pin::pin;
+    /// use tpt_dev_async::Executor;
+    ///
+    /// let exec = pin!(Executor::<4>::new());
+    /// assert_eq!(exec.pending(), 0);
+    /// ```
     #[cfg(not(loom))]
     pub const fn new() -> Self {
         const {
@@ -112,6 +122,16 @@ impl<'a, const N: usize> Executor<'a, N> {
     }
 
     /// Creates an executor with no tasks.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use core::pin::pin;
+    /// use tpt_dev_async::Executor;
+    ///
+    /// let exec = pin!(Executor::<4>::default());
+    /// assert_eq!(exec.pending(), 0);
+    /// ```
     #[cfg(loom)]
     pub fn new() -> Self {
         const {
@@ -137,6 +157,21 @@ impl<'a, const N: usize> Executor<'a, N> {
     }
 
     /// Adds a task. Larger `priority` values run first. The task is ready from the start.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use core::future::Future;
+    /// use core::pin::{Pin, pin};
+    /// use core::task::{Context, Poll};
+    /// use tpt_dev_async::{Executor, Full};
+    ///
+    /// let mut exec = pin!(Executor::<1>::new());
+    /// let a = pin!(async {});
+    /// assert_eq!(exec.as_mut().spawn(a, 0), Ok(0));
+    /// let b = pin!(async {});
+    /// assert_eq!(exec.as_mut().spawn(b, 0), Err(Full));
+    /// ```
     pub fn spawn(
         self: Pin<&mut Self>,
         fut: Pin<&'a mut (dyn Future<Output = ()> + 'a)>,
@@ -156,6 +191,21 @@ impl<'a, const N: usize> Executor<'a, N> {
 
     /// Runs one round: polls every task that is ready when the round starts,
     /// highest priority first. Returns the number of polls.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use core::future::Future;
+    /// use core::pin::{Pin, pin};
+    /// use core::task::{Context, Poll};
+    /// use tpt_dev_async::{Executor, Full};
+    ///
+    /// let mut exec = pin!(Executor::<2>::new());
+    /// let a = pin!(async {});
+    /// exec.as_mut().spawn(a, 0).unwrap();
+    /// assert_eq!(exec.as_mut().run_round(), 1);
+    /// assert_eq!(exec.pending(), 0);
+    /// ```
     pub fn run_round(self: Pin<&mut Self>) -> usize {
         // SAFETY: as in `spawn`.
         let this = unsafe { self.get_unchecked_mut() };
@@ -208,6 +258,21 @@ impl<'a, const N: usize> Executor<'a, N> {
 
     /// Runs rounds until no task is ready, or until `max_rounds` have run.
     /// Returns the number of rounds run.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use core::future::Future;
+    /// use core::pin::{Pin, pin};
+    /// use core::task::{Context, Poll};
+    /// use tpt_dev_async::{Executor, Full};
+    ///
+    /// let mut exec = pin!(Executor::<2>::new());
+    /// let a = pin!(async {});
+    /// exec.as_mut().spawn(a, 0).unwrap();
+    /// assert_eq!(exec.as_mut().run_until_idle(10), 1);
+    /// assert_eq!(exec.pending(), 0);
+    /// ```
     pub fn run_until_idle(mut self: Pin<&mut Self>, max_rounds: u32) -> u32 {
         let mut rounds = 0;
         while rounds < max_rounds && self.ready.load(Ordering::Acquire) != 0 {
@@ -222,6 +287,37 @@ impl<'a, const N: usize> Executor<'a, N> {
     /// if the slot is empty or not ready.
     ///
     /// This is for drivers, such as replayers, that choose the schedule themselves.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use core::future::Future;
+    /// use core::pin::{Pin, pin};
+    /// use core::task::{Context, Poll};
+    /// use tpt_dev_async::{Executor, Full};
+    ///
+    /// struct Yield(bool);
+    /// impl Future for Yield {
+    ///     type Output = ();
+    ///     fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<()> {
+    ///         if self.0 {
+    ///             Poll::Ready(())
+    ///         } else {
+    ///             self.0 = true;
+    ///             Poll::Pending
+    ///         }
+    ///     }
+    /// }
+    ///
+    /// let mut exec = pin!(Executor::<1>::new());
+    /// let task = pin!(Yield(false));
+    /// exec.as_mut().spawn(task, 0).unwrap();
+    /// // The first poll returns Pending and does not wake the task itself.
+    /// assert_eq!(exec.as_mut().poll_slot(0), Some(false));
+    /// assert_eq!(exec.as_mut().poll_slot(0), None);
+    /// exec.wake_slot(0);
+    /// assert_eq!(exec.as_mut().poll_slot(0), Some(true));
+    /// ```
     pub fn poll_slot(self: Pin<&mut Self>, i: usize) -> Option<bool> {
         // SAFETY: as in `spawn`.
         let this = unsafe { self.get_unchecked_mut() };
@@ -245,6 +341,36 @@ impl<'a, const N: usize> Executor<'a, N> {
     }
 
     /// Marks slot `i` ready, as an interrupt handler would. Does nothing for an empty slot.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use core::future::Future;
+    /// use core::pin::{Pin, pin};
+    /// use core::task::{Context, Poll};
+    /// use tpt_dev_async::{Executor, Full};
+    ///
+    /// struct Yield(bool);
+    /// impl Future for Yield {
+    ///     type Output = ();
+    ///     fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<()> {
+    ///         if self.0 {
+    ///             Poll::Ready(())
+    ///         } else {
+    ///             self.0 = true;
+    ///             Poll::Pending
+    ///         }
+    ///     }
+    /// }
+    ///
+    /// let mut exec = pin!(Executor::<1>::new());
+    /// let task = pin!(Yield(false));
+    /// exec.as_mut().spawn(task, 0).unwrap();
+    /// exec.as_mut().poll_slot(0);
+    /// assert_eq!(exec.ready_mask(), 0);
+    /// exec.wake_slot(0);
+    /// assert_eq!(exec.ready_mask(), 1);
+    /// ```
     pub fn wake_slot(&self, i: usize) {
         if i < N && self.slots[i].is_some() {
             self.ready.fetch_or(1 << i, Ordering::Release);
@@ -252,21 +378,86 @@ impl<'a, const N: usize> Executor<'a, N> {
     }
 
     /// The set of ready slots, one bit per slot.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use core::future::Future;
+    /// use core::pin::{Pin, pin};
+    /// use core::task::{Context, Poll};
+    /// use tpt_dev_async::{Executor, Full};
+    ///
+    /// let mut exec = pin!(Executor::<2>::new());
+    /// let a = pin!(async {});
+    /// let b = pin!(async {});
+    /// exec.as_mut().spawn(a, 0).unwrap();
+    /// exec.as_mut().spawn(b, 0).unwrap();
+    /// assert_eq!(exec.ready_mask(), 0b11);
+    /// ```
     pub fn ready_mask(&self) -> u32 {
         self.ready.load(Ordering::Acquire)
     }
 
     /// The priority of slot `i`, or `None` if the slot is empty.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use core::future::Future;
+    /// use core::pin::{Pin, pin};
+    /// use core::task::{Context, Poll};
+    /// use tpt_dev_async::{Executor, Full};
+    ///
+    /// let mut exec = pin!(Executor::<2>::new());
+    /// let a = pin!(async {});
+    /// exec.as_mut().spawn(a, 5).unwrap();
+    /// assert_eq!(exec.priority(0), Some(5));
+    /// assert_eq!(exec.priority(1), None);
+    /// ```
     pub fn priority(&self, i: usize) -> Option<u8> {
         self.slots.get(i)?.as_ref().map(|s| s.priority)
     }
 
     /// Number of tasks that have not finished.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use core::future::Future;
+    /// use core::pin::{Pin, pin};
+    /// use core::task::{Context, Poll};
+    /// use tpt_dev_async::{Executor, Full};
+    ///
+    /// let mut exec = pin!(Executor::<2>::new());
+    /// let a = pin!(async {});
+    /// let b = pin!(async {});
+    /// exec.as_mut().spawn(a, 0).unwrap();
+    /// exec.as_mut().spawn(b, 0).unwrap();
+    /// assert_eq!(exec.pending(), 2);
+    /// exec.as_mut().run_until_idle(10);
+    /// assert_eq!(exec.pending(), 0);
+    /// ```
     pub fn pending(&self) -> usize {
         self.slots.iter().filter(|s| s.is_some()).count()
     }
 
     /// Work counters for this executor.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use core::future::Future;
+    /// use core::pin::{Pin, pin};
+    /// use core::task::{Context, Poll};
+    /// use tpt_dev_async::{Executor, Full};
+    ///
+    /// let mut exec = pin!(Executor::<2>::new());
+    /// let a = pin!(async {});
+    /// exec.as_mut().spawn(a, 0).unwrap();
+    /// exec.as_mut().run_until_idle(10);
+    /// let stats = exec.stats();
+    /// assert_eq!((stats.rounds, stats.polls, stats.max_polls_per_round), (1, 1, 1));
+    /// ```
     pub fn stats(&self) -> Stats {
         self.stats
     }

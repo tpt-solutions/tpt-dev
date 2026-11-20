@@ -98,6 +98,15 @@ pub struct Feed<L: Lexer, const CARRY: usize> {
 
 impl<L: Lexer, const CARRY: usize> Feed<L, CARRY> {
     /// Creates a driver that uses `lexer`. Fails to compile if `CARRY` is zero.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_ast::{Feed, JsonLexer};
+    ///
+    /// let feed: Feed<JsonLexer, 16> = Feed::new(JsonLexer);
+    /// assert_eq!(feed.consumed(), 0);
+    /// ```
     pub const fn new(lexer: L) -> Self {
         const { assert!(CARRY > 0, "the carry buffer needs at least one byte") };
         Self {
@@ -109,11 +118,38 @@ impl<L: Lexer, const CARRY: usize> Feed<L, CARRY> {
     }
 
     /// Total bytes lexed so far.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_ast::{Feed, Fault, JsonLexer, Token};
+    ///
+    /// let mut feed: Feed<JsonLexer, 16> = Feed::new(JsonLexer);
+    /// let mut sink = |_t: Token<'_>| -> Result<(), Fault> { Ok(()) };
+    /// feed.feed(b"[1]", &mut sink).unwrap();
+    /// assert_eq!(feed.consumed(), 3);
+    /// ```
     pub const fn consumed(&self) -> usize {
         self.consumed
     }
 
     /// Feeds the next chunk of input. Each token goes to `sink`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_ast::{Feed, Fault, JsonLexer, Token};
+    ///
+    /// let mut feed: Feed<JsonLexer, 8> = Feed::new(JsonLexer);
+    /// let mut tokens = 0;
+    /// let mut sink = |_t: Token<'_>| -> Result<(), Fault> {
+    ///     tokens += 1;
+    ///     Ok(())
+    /// };
+    /// feed.feed(b"[1, 2]", &mut sink).unwrap();
+    /// feed.finish(&mut sink).unwrap();
+    /// assert!(tokens > 0);
+    /// ```
     pub fn feed<F>(&mut self, mut chunk: &[u8], sink: &mut F) -> Result<(), ParseError>
     where
         F: for<'a> FnMut(<L as Lexer>::Token<'a>) -> Result<(), Fault>,
@@ -166,6 +202,17 @@ impl<L: Lexer, const CARRY: usize> Feed<L, CARRY> {
     }
 
     /// Declares the end of input, lexing any token still waiting in the carry.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_ast::{Feed, Fault, JsonLexer, Token};
+    ///
+    /// let mut feed: Feed<JsonLexer, 8> = Feed::new(JsonLexer);
+    /// let mut sink = |_t: Token<'_>| -> Result<(), Fault> { Ok(()) };
+    /// feed.feed(b"42", &mut sink).unwrap();
+    /// feed.finish(&mut sink).unwrap();
+    /// ```
     pub fn finish<F>(&mut self, sink: &mut F) -> Result<(), ParseError>
     where
         F: for<'a> FnMut(<L as Lexer>::Token<'a>) -> Result<(), Fault>,
@@ -244,6 +291,15 @@ impl<const DEPTH: usize, const CARRY: usize> Stream<DEPTH, CARRY> {
     /// Creates a stream ready for the first byte.
     ///
     /// Fails to compile if `CARRY` is zero.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_ast::Stream;
+    ///
+    /// let stream: Stream<8, 16> = Stream::new();
+    /// assert_eq!(stream.consumed(), 0);
+    /// ```
     pub const fn new() -> Self {
         Self {
             parser: Parser::new(),
@@ -252,11 +308,37 @@ impl<const DEPTH: usize, const CARRY: usize> Stream<DEPTH, CARRY> {
     }
 
     /// Total bytes parsed so far.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_ast::Stream;
+    ///
+    /// let mut stream: Stream<8, 16> = Stream::new();
+    /// let mut events = 0;
+    /// let mut visit = |_e: tpt_dev_ast::Event<'_>| events += 1;
+    /// stream.feed(b"[1]", &mut visit).unwrap();
+    /// assert_eq!(stream.consumed(), 3);
+    /// ```
     pub const fn consumed(&self) -> usize {
         self.feed.consumed()
     }
 
     /// Feeds the next chunk of input.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_ast::{Event, Stream};
+    ///
+    /// let mut stream: Stream<8, 16> = Stream::new();
+    /// let mut events = 0;
+    /// let mut visit = |_e: Event<'_>| events += 1;
+    /// stream.feed(b"[1,", &mut visit).unwrap();
+    /// stream.feed(b"2]", &mut visit).unwrap();
+    /// stream.finish(&mut visit).unwrap();
+    /// assert_eq!(events, 4);
+    /// ```
     pub fn feed(&mut self, chunk: &[u8], visitor: &mut dyn Visitor) -> Result<(), ParseError> {
         let parser = &mut self.parser;
         self.feed
@@ -264,6 +346,17 @@ impl<const DEPTH: usize, const CARRY: usize> Stream<DEPTH, CARRY> {
     }
 
     /// Declares the end of input, and checks that the document is complete.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_ast::{Event, Stream};
+    ///
+    /// let mut stream: Stream<8, 16> = Stream::new();
+    /// let mut visit = |_e: Event<'_>| {};
+    /// stream.feed(b"null", &mut visit).unwrap();
+    /// stream.finish(&mut visit).unwrap();
+    /// ```
     pub fn finish(&mut self, visitor: &mut dyn Visitor) -> Result<(), ParseError> {
         let parser = &mut self.parser;
         self.feed

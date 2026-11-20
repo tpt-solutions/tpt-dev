@@ -72,27 +72,78 @@ pub struct Layout<const B: usize> {
 
 impl<const B: usize> Layout<B> {
     /// Builds a version-1 layout. Panics at compile time if the fields are invalid.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_codec::{Field, Layout};
+    ///
+    /// const FIELDS: [Field; 1] = [Field::bits("id", 0, 8)];
+    /// const LAYOUT: Layout<1> = Layout::new(&FIELDS);
+    /// assert_eq!(LAYOUT.version(), 1);
+    /// ```
     pub const fn new(fields: &'static [Field]) -> Self {
         validate(fields, B);
         Self { fields, version: 1 }
     }
 
     /// Sets the schema version. Use it with [`Layout::extends`] to check evolution.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_codec::{Field, Layout};
+    ///
+    /// const FIELDS: [Field; 1] = [Field::bits("id", 0, 8)];
+    /// const LAYOUT: Layout<1> = Layout::new(&FIELDS).with_version(3);
+    /// assert_eq!(LAYOUT.version(), 3);
+    /// ```
     pub const fn with_version(self, version: u16) -> Self {
         Self { version, ..self }
     }
 
     /// The fields, in declaration order.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_codec::{Field, Layout};
+    ///
+    /// const FIELDS: [Field; 1] = [Field::bits("id", 0, 8)];
+    /// const LAYOUT: Layout<1> = Layout::new(&FIELDS);
+    /// assert_eq!(LAYOUT.fields().len(), 1);
+    /// assert_eq!(LAYOUT.fields()[0].name, "id");
+    /// ```
     pub const fn fields(&self) -> &'static [Field] {
         self.fields
     }
 
     /// The schema version.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_codec::{Field, Layout};
+    ///
+    /// const FIELDS: [Field; 1] = [Field::bits("id", 0, 8)];
+    /// const LAYOUT: Layout<1> = Layout::new(&FIELDS).with_version(2);
+    /// assert_eq!(LAYOUT.version(), 2);
+    /// ```
     pub const fn version(&self) -> u16 {
         self.version
     }
 
     /// Size of the layout in bytes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_codec::{Field, Layout};
+    ///
+    /// const FIELDS: [Field; 1] = [Field::bits("id", 0, 8)];
+    /// const LAYOUT: Layout<1> = Layout::new(&FIELDS);
+    /// assert_eq!(LAYOUT.bytes(), 1);
+    /// ```
     pub const fn bytes(&self) -> usize {
         B
     }
@@ -143,6 +194,24 @@ impl<const B: usize> Layout<B> {
     /// Writes `values`, one per field in declaration order, into `out`.
     ///
     /// Only the first `B` bytes are written. Bits not covered by a field are zero.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_codec::{CodecError, Field, Layout};
+    ///
+    /// const FIELDS: [Field; 1] = [Field::bits("id", 0, 8)];
+    /// const LAYOUT: Layout<1> = Layout::new(&FIELDS);
+    ///
+    /// let mut buf = [0u8; 2];
+    /// assert_eq!(LAYOUT.encode(&[0xAB], &mut buf), Ok(1));
+    /// assert_eq!(buf[0], 0xAB);
+    /// // 0x1FF needs nine bits, so the 8-bit field refuses it.
+    /// assert!(matches!(
+    ///     LAYOUT.encode(&[0x1FF], &mut buf),
+    ///     Err(CodecError::TooWide { field: 0, width: 8 })
+    /// ));
+    /// ```
     pub fn encode(&self, values: &[u64], out: &mut [u8]) -> Result<usize, CodecError> {
         if values.len() != self.fields.len() {
             return Err(CodecError::WrongValueCount {
@@ -170,6 +239,19 @@ impl<const B: usize> Layout<B> {
     }
 
     /// Reads one value per field from `buf` into `out`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_codec::{Field, Layout};
+    ///
+    /// const FIELDS: [Field; 1] = [Field::bits("id", 0, 8)];
+    /// const LAYOUT: Layout<1> = Layout::new(&FIELDS);
+    ///
+    /// let mut out = [0u64; 1];
+    /// LAYOUT.decode(&[0xAB], &mut out).unwrap();
+    /// assert_eq!(out, [0xAB]);
+    /// ```
     pub fn decode(&self, buf: &[u8], out: &mut [u64]) -> Result<(), CodecError> {
         if out.len() != self.fields.len() {
             return Err(CodecError::WrongValueCount {

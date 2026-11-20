@@ -88,6 +88,24 @@ pub struct Router<'s, T: Copy + Default, const D: usize, const R: usize, const B
 
 impl<'s, T: Copy + Default, const D: usize, const R: usize, const B: usize> Router<'s, T, D, R, B> {
     /// Creates a router. Fails if any rule names a lane index of `D` or more.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_sink::{Busy, Lane, Policy, Router, Rule, RuleError, Sink};
+    ///
+    /// struct Null;
+    /// impl Sink<u8> for Null {
+    ///     fn send(&mut self, _batch: &[u8]) -> Result<(), Busy> {
+    ///         Ok(())
+    ///     }
+    /// }
+    ///
+    /// let mut sink = Null;
+    /// // Lane 3 does not exist, so the rule is refused and reports its index.
+    /// let bad = Router::<u8, 1, 1, 1>::new([Lane::new(&mut sink, Policy::Reject)], [Rule { topic: None, lane: 3 }]);
+    /// assert_eq!(bad.err(), Some(RuleError { rule: 0 }));
+    /// ```
     pub fn new(lanes: [Lane<'s, T, B>; D], rules: [Rule; R]) -> Result<Self, RuleError> {
         for (i, rule) in rules.iter().enumerate() {
             if rule.lane >= D {
@@ -98,6 +116,27 @@ impl<'s, T: Copy + Default, const D: usize, const R: usize, const B: usize> Rout
     }
 
     /// Routes one message to every lane whose rule matches `topic`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_sink::{Busy, Lane, Policy, Router, Rule, Sink};
+    ///
+    /// struct Null;
+    /// impl Sink<u8> for Null {
+    ///     fn send(&mut self, _batch: &[u8]) -> Result<(), Busy> {
+    ///         Ok(())
+    ///     }
+    /// }
+    ///
+    /// let mut sink = Null;
+    /// let mut router: Router<u8, 1, 1, 4> = Router::new(
+    ///     [Lane::new(&mut sink, Policy::DropNewest)],
+    ///     [Rule { topic: Some(1), lane: 0 }],
+    /// ).unwrap();
+    /// assert_eq!(router.route(1, 10).delivered, 1);
+    /// assert_eq!(router.route(2, 20).delivered, 0);
+    /// ```
     pub fn route(&mut self, topic: u16, value: T) -> Routed {
         let mut out = Routed::default();
         for rule in self.rules.iter() {
@@ -114,6 +153,34 @@ impl<'s, T: Copy + Default, const D: usize, const R: usize, const B: usize> Rout
 
     /// Takes every message waiting in `rx` and routes it. The ingress queue is
     /// usually filled from an interrupt handler through a `tpt-dev-lock` [`Spsc`](tpt_dev_lock::Spsc).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_lock::Spsc;
+    /// use tpt_dev_sink::{Busy, Envelope, Lane, Policy, Router, Rule, Sink};
+    ///
+    /// struct Log(u32);
+    /// impl Sink<u8> for Log {
+    ///     fn send(&mut self, batch: &[u8]) -> Result<(), Busy> {
+    ///         self.0 += batch.len() as u32;
+    ///         Ok(())
+    ///     }
+    /// }
+    ///
+    /// let mut log = Log(0);
+    /// let mut router: Router<u8, 1, 1, 1> = Router::new(
+    ///     [Lane::new(&mut log, Policy::DropNewest)],
+    ///     [Rule { topic: None, lane: 0 }],
+    /// ).unwrap();
+    /// let mut queue: Spsc<Envelope<u8>, 4> = Spsc::new();
+    /// let (mut tx, mut rx) = queue.split();
+    /// tx.push(Envelope { topic: 1, value: 9 }).unwrap();
+    /// tx.push(Envelope { topic: 2, value: 8 }).unwrap();
+    /// assert_eq!(router.pump(&mut rx).delivered, 2);
+    /// drop(router);
+    /// assert_eq!(log.0, 2);
+    /// ```
     pub fn pump<const Q: usize>(&mut self, rx: &mut Consumer<'_, Envelope<T>, Q>) -> Routed {
         let mut total = Routed::default();
         while let Some(env) = rx.pop() {
@@ -125,6 +192,28 @@ impl<'s, T: Copy + Default, const D: usize, const R: usize, const B: usize> Rout
     }
 
     /// Sends every partly filled batch. Returns the number of lanes whose sink refused.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_sink::{Busy, Lane, Policy, Router, Rule, Sink};
+    ///
+    /// struct Blocked;
+    /// impl Sink<u8> for Blocked {
+    ///     fn send(&mut self, _batch: &[u8]) -> Result<(), Busy> {
+    ///         Err(Busy)
+    ///     }
+    /// }
+    ///
+    /// let mut sink = Blocked;
+    /// let mut router: Router<u8, 1, 1, 4> = Router::new(
+    ///     [Lane::new(&mut sink, Policy::Reject)],
+    ///     [Rule { topic: None, lane: 0 }],
+    /// ).unwrap();
+    /// router.route(0, 5);
+    /// // The one lane's sink refuses its batch.
+    /// assert_eq!(router.flush(), 1);
+    /// ```
     pub fn flush(&mut self) -> usize {
         let mut busy = 0;
         for lane in self.lanes.iter_mut() {
@@ -136,6 +225,29 @@ impl<'s, T: Copy + Default, const D: usize, const R: usize, const B: usize> Rout
     }
 
     /// The counters for lane `index`, or `None` if there is no such lane.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_sink::{Busy, Lane, Policy, Router, Rule, Sink};
+    ///
+    /// struct Null;
+    /// impl Sink<u8> for Null {
+    ///     fn send(&mut self, _batch: &[u8]) -> Result<(), Busy> {
+    ///         Ok(())
+    ///     }
+    /// }
+    ///
+    /// let mut sink = Null;
+    /// let mut router: Router<u8, 1, 1, 2> = Router::new(
+    ///     [Lane::new(&mut sink, Policy::DropNewest)],
+    ///     [Rule { topic: None, lane: 0 }],
+    /// ).unwrap();
+    /// router.route(0, 1);
+    /// router.route(0, 2);
+    /// assert_eq!(router.stats(0).unwrap().sent, 2);
+    /// assert!(router.stats(1).is_none());
+    /// ```
     pub fn stats(&self, index: usize) -> Option<crate::LaneStats> {
         self.lanes.get(index).map(|l| l.stats())
     }

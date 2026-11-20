@@ -91,6 +91,20 @@ pub struct Pager<'a, const N: usize, const S: usize, const MAXP: usize> {
 
 impl<'a, const N: usize, const S: usize, const MAXP: usize> Pager<'a, N, S, MAXP> {
     /// Builds a pager over `storage`, which must hold `N` pages.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_paged::{Error, Pager};
+    ///
+    /// let mut storage = [0u8; 32];
+    /// let pager: Pager<'_, 4, 2, 4> = Pager::new(&mut storage, 2, 4).unwrap();
+    /// assert_eq!(pager.stats().total_pages, 4);
+    ///
+    /// // Storage smaller than the pool is a configuration error.
+    /// let mut small = [0u8; 4];
+    /// assert_eq!(Pager::<4, 2, 4>::new(&mut small, 2, 4).err(), Some(Error::BadConfig));
+    /// ```
     pub fn new(
         storage: &'a mut [u8],
         tokens_per_page: usize,
@@ -127,6 +141,17 @@ impl<'a, const N: usize, const S: usize, const MAXP: usize> Pager<'a, N, S, MAXP
     }
 
     /// Opens a new, empty sequence with identifier `id`. Returns its slot.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_paged::Pager;
+    ///
+    /// let mut storage = [0u8; 32];
+    /// let mut pager: Pager<'_, 4, 2, 4> = Pager::new(&mut storage, 2, 4).unwrap();
+    /// let slot = pager.open(7).unwrap();
+    /// assert_eq!(pager.sequence_id(slot), Some(7));
+    /// ```
     pub fn open(&mut self, id: u32) -> Result<usize, Error> {
         let slot = self
             .seqs
@@ -147,6 +172,18 @@ impl<'a, const N: usize, const S: usize, const MAXP: usize> Pager<'a, N, S, MAXP
 
     /// Adds `tokens` tokens to the sequence, allocating pages as needed. Evicts
     /// the least recently used other sequence when the pool is full.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_paged::Pager;
+    ///
+    /// let mut storage = [0u8; 32];
+    /// let mut pager: Pager<'_, 4, 2, 4> = Pager::new(&mut storage, 2, 4).unwrap();
+    /// let slot = pager.open(1).unwrap();
+    /// pager.append(slot, 3).unwrap();
+    /// assert_eq!(pager.tokens(slot), Some(3));
+    /// ```
     pub fn append(&mut self, slot: usize, tokens: usize) -> Result<(), Error> {
         let seq = self.active(slot)?;
         let new_len = seq.tokens + tokens;
@@ -167,6 +204,19 @@ impl<'a, const N: usize, const S: usize, const MAXP: usize> Pager<'a, N, S, MAXP
     }
 
     /// Writes one token's bytes. A page shared with another sequence is copied first.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_paged::Pager;
+    ///
+    /// let mut storage = [0u8; 32];
+    /// let mut pager: Pager<'_, 4, 2, 4> = Pager::new(&mut storage, 2, 4).unwrap();
+    /// let slot = pager.open(1).unwrap();
+    /// pager.append(slot, 1).unwrap();
+    /// pager.write(slot, 0, &[9, 8, 7, 6]).unwrap();
+    /// assert_eq!(pager.read(slot, 0).unwrap(), &[9, 8, 7, 6]);
+    /// ```
     pub fn write(&mut self, slot: usize, token: usize, data: &[u8]) -> Result<(), Error> {
         if data.len() != self.bytes_per_token {
             return Err(Error::BadSize);
@@ -196,6 +246,21 @@ impl<'a, const N: usize, const S: usize, const MAXP: usize> Pager<'a, N, S, MAXP
     }
 
     /// Reads one token's bytes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_paged::Pager;
+    ///
+    /// let mut storage = [0u8; 32];
+    /// let mut pager: Pager<'_, 4, 2, 4> = Pager::new(&mut storage, 2, 4).unwrap();
+    /// let slot = pager.open(1).unwrap();
+    /// pager.append(slot, 2).unwrap();
+    /// pager.write(slot, 1, &[1, 2, 3, 4]).unwrap();
+    /// assert_eq!(pager.read(slot, 1).unwrap(), &[1, 2, 3, 4]);
+    /// // Token 5 is past the end of a two-token sequence.
+    /// assert!(pager.read(slot, 5).is_err());
+    /// ```
     pub fn read(&self, slot: usize, token: usize) -> Result<&[u8], Error> {
         let seq = self.active(slot)?;
         if token >= seq.tokens {
@@ -209,6 +274,21 @@ impl<'a, const N: usize, const S: usize, const MAXP: usize> Pager<'a, N, S, MAXP
 
     /// Creates sequence `id` that shares all of `src`'s pages. Writes to either
     /// copy the shared page first, so the two sequences diverge safely.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_paged::Pager;
+    ///
+    /// let mut storage = [0u8; 32];
+    /// let mut pager: Pager<'_, 4, 2, 4> = Pager::new(&mut storage, 2, 4).unwrap();
+    /// let src = pager.open(1).unwrap();
+    /// pager.append(src, 1).unwrap();
+    /// pager.write(src, 0, &[1, 2, 3, 4]).unwrap();
+    /// let dst = pager.fork(src, 2).unwrap();
+    /// assert_eq!(pager.read(dst, 0).unwrap(), &[1, 2, 3, 4]);
+    /// assert_eq!(pager.tokens(dst), Some(1));
+    /// ```
     pub fn fork(&mut self, src: usize, id: u32) -> Result<usize, Error> {
         let source = *self.active(src)?;
         let dst = self.open(id)?;
@@ -224,6 +304,18 @@ impl<'a, const N: usize, const S: usize, const MAXP: usize> Pager<'a, N, S, MAXP
     }
 
     /// Closes a sequence, releasing its pages that no other sequence shares.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_paged::Pager;
+    ///
+    /// let mut storage = [0u8; 32];
+    /// let mut pager: Pager<'_, 4, 2, 4> = Pager::new(&mut storage, 2, 4).unwrap();
+    /// let slot = pager.open(1).unwrap();
+    /// pager.close(slot).unwrap();
+    /// assert_eq!(pager.sequence_id(slot), None);
+    /// ```
     pub fn close(&mut self, slot: usize) -> Result<(), Error> {
         let seq = match self.seqs.get(slot) {
             Some(Some(s)) => *s,
@@ -237,6 +329,18 @@ impl<'a, const N: usize, const S: usize, const MAXP: usize> Pager<'a, N, S, MAXP
     }
 
     /// The identifier a sequence was opened with, or `None` if the slot is empty.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_paged::Pager;
+    ///
+    /// let mut storage = [0u8; 32];
+    /// let mut pager: Pager<'_, 4, 2, 4> = Pager::new(&mut storage, 2, 4).unwrap();
+    /// let slot = pager.open(42).unwrap();
+    /// assert_eq!(pager.sequence_id(slot), Some(42));
+    /// assert_eq!(pager.sequence_id(3), None);
+    /// ```
     pub fn sequence_id(&self, slot: usize) -> Option<u32> {
         match self.seqs.get(slot) {
             Some(Some(s)) => Some(s.id),
@@ -245,12 +349,38 @@ impl<'a, const N: usize, const S: usize, const MAXP: usize> Pager<'a, N, S, MAXP
     }
 
     /// Number of tokens in an active sequence.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_paged::Pager;
+    ///
+    /// let mut storage = [0u8; 32];
+    /// let mut pager: Pager<'_, 4, 2, 4> = Pager::new(&mut storage, 2, 4).unwrap();
+    /// let slot = pager.open(1).unwrap();
+    /// assert_eq!(pager.tokens(slot), Some(0));
+    /// pager.append(slot, 2).unwrap();
+    /// assert_eq!(pager.tokens(slot), Some(2));
+    /// ```
     pub fn tokens(&self, slot: usize) -> Option<usize> {
         self.active(slot).ok().map(|s| s.tokens)
     }
 
     /// Token slots reserved but not used, in the sequence's last page. With
     /// fixed-size pages this is the only waste: there is no external fragmentation.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_paged::Pager;
+    ///
+    /// let mut storage = [0u8; 32];
+    /// let mut pager: Pager<'_, 4, 2, 4> = Pager::new(&mut storage, 2, 4).unwrap();
+    /// let slot = pager.open(1).unwrap();
+    /// // Three tokens on two-token pages reserve four slots, so one is unused.
+    /// pager.append(slot, 3).unwrap();
+    /// assert_eq!(pager.internal_fragmentation(slot), Some(1));
+    /// ```
     pub fn internal_fragmentation(&self, slot: usize) -> Option<usize> {
         let seq = self.active(slot).ok()?;
         let capacity = seq.npages * self.tokens_per_page;
@@ -258,6 +388,20 @@ impl<'a, const N: usize, const S: usize, const MAXP: usize> Pager<'a, N, S, MAXP
     }
 
     /// Current usage counts.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_paged::Pager;
+    ///
+    /// let mut storage = [0u8; 32];
+    /// let mut pager: Pager<'_, 4, 2, 4> = Pager::new(&mut storage, 2, 4).unwrap();
+    /// let slot = pager.open(1).unwrap();
+    /// pager.append(slot, 1).unwrap();
+    /// let stats = pager.stats();
+    /// assert_eq!(stats.total_pages, 4);
+    /// assert_eq!(stats.active_sequences, 1);
+    /// ```
     pub fn stats(&self) -> Stats {
         Stats {
             free_pages: self.refs.iter().filter(|&&r| r == 0).count(),

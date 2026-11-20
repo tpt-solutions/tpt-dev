@@ -8,7 +8,8 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 readme = "README.md"
-categories = ["no-std"]
+keywords = ["serialization", "binary", "bitfield", "encoding"]
+categories = ["no-std", "no-std::no-alloc", "encoding", "embedded"]
 
 [features]
 default = []
@@ -17,6 +18,9 @@ std = []
 [dev-dependencies]
 tpt-dev-test = { version = "0.0.0", path = "../tpt-dev-test" }
 trybuild = "1"
+# The schema_codegen example emits a dsl grammar and a parser that the generated tests use.
+tpt-dev-dsl = { version = "0.0.0", path = "../tpt-dev-dsl" }
+tpt-dev-codegen = { version = "0.0.0", path = "../tpt-dev-codegen" }
 
 [lints]
 workspace = true

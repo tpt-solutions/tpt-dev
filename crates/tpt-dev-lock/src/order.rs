@@ -58,6 +58,16 @@ impl<L> Token<L> {
 
 impl Token<Nil> {
     /// The token for a thread that holds no locks.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_lock::{Nil, Token};
+    ///
+    /// // A thread that holds no locks starts from the root token.
+    /// let root: Token<Nil> = Token::root();
+    /// let _copy = root.clone();
+    /// ```
     pub const fn root() -> Self {
         Self::new()
     }

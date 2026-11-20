@@ -60,21 +60,62 @@ pub struct Graph {
 
 impl Graph {
     /// An empty graph.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_dispatch::Graph;
+    ///
+    /// let graph = Graph::new();
+    /// assert!(graph.is_empty());
+    /// ```
     pub const fn new() -> Self {
         Self { tasks: Vec::new() }
     }
 
     /// Number of tasks.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_dispatch::{Graph, Op};
+    ///
+    /// let mut graph = Graph::new();
+    /// graph.constant(Op::Sum, vec![vec![1.0, 2.0]]);
+    /// assert_eq!(graph.len(), 1);
+    /// ```
     pub fn len(&self) -> usize {
         self.tasks.len()
     }
 
     /// Returns `true` when the graph has no tasks.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_dispatch::{Graph, Op};
+    ///
+    /// let mut graph = Graph::new();
+    /// assert!(graph.is_empty());
+    /// graph.constant(Op::Sum, vec![vec![1.0]]);
+    /// assert!(!graph.is_empty());
+    /// ```
     pub fn is_empty(&self) -> bool {
         self.tasks.is_empty()
     }
 
     /// Adds a task that takes the results of `inputs`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_dispatch::{Graph, Op};
+    ///
+    /// let mut graph = Graph::new();
+    /// let x = graph.constant(Op::Add, vec![vec![1.0], vec![2.0]]);
+    /// let _relu = graph.node(Op::Relu, &[x]);
+    /// assert_eq!(graph.len(), 2);
+    /// ```
     pub fn node(&mut self, op: Op, inputs: &[TaskId]) -> TaskId {
         self.tasks.push(Task {
             op,
@@ -85,6 +126,16 @@ impl Graph {
     }
 
     /// Adds a task whose inputs are constant vectors.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_dispatch::{Graph, Op};
+    ///
+    /// let mut graph = Graph::new();
+    /// let _data = graph.constant(Op::Sum, vec![vec![1.0, 2.0, 3.0]]);
+    /// assert_eq!(graph.len(), 1);
+    /// ```
     pub fn constant(&mut self, op: Op, data: Vec<Vec<f32>>) -> TaskId {
         self.tasks.push(Task {
             op,
@@ -98,6 +149,17 @@ impl Graph {
     ///
     /// This API cannot build a cycle, because a task can only refer to tasks
     /// added before it. The cycle check is kept as a defensive guard.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_dispatch::{Graph, Op};
+    ///
+    /// let mut graph = Graph::new();
+    /// let x = graph.constant(Op::Add, vec![vec![1.0], vec![2.0]]);
+    /// let y = graph.node(Op::Relu, &[x]);
+    /// assert_eq!(graph.order().unwrap(), vec![x, y]);
+    /// ```
     pub fn order(&self) -> Result<Vec<TaskId>, GraphError> {
         let n = self.tasks.len();
         let mut indegree = alloc::vec![0usize; n];
