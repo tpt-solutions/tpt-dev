@@ -40,6 +40,15 @@ impl Rational {
 
     /// Builds `num / den` in lowest terms. Returns `None` if `den` is zero or
     /// the reduced value does not fit.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::Rational;
+    /// let r = Rational::new(2, -4).unwrap();
+    /// assert_eq!((r.num(), r.den()), (-1, 2));
+    /// assert!(Rational::new(1, 0).is_none());
+    /// ```
     pub fn new(num: i128, den: i128) -> Option<Self> {
         if den == 0 {
             return None;
@@ -60,31 +69,79 @@ impl Rational {
     }
 
     /// The integer `n`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::Rational;
+    /// let r = Rational::from_int(5);
+    /// assert!(r.is_integer());
+    /// assert_eq!(r.num(), 5);
+    /// ```
     pub const fn from_int(n: i128) -> Self {
         Self { num: n, den: 1 }
     }
 
     /// The numerator, sign included.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::Rational;
+    /// assert_eq!(Rational::new(-3, 6).unwrap().num(), -1);
+    /// ```
     pub const fn num(&self) -> i128 {
         self.num
     }
 
     /// The denominator, always positive.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::Rational;
+    /// assert_eq!(Rational::new(3, -6).unwrap().den(), 2);
+    /// ```
     pub const fn den(&self) -> i128 {
         self.den
     }
 
     /// Returns `true` for zero.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::Rational;
+    /// assert!(Rational::new(0, 7).unwrap().is_zero());
+    /// assert!(!Rational::ONE.is_zero());
+    /// ```
     pub const fn is_zero(&self) -> bool {
         self.num == 0
     }
 
     /// Returns `true` if the value is an integer.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::Rational;
+    /// assert!(Rational::new(4, 2).unwrap().is_integer());
+    /// assert!(!Rational::new(1, 2).unwrap().is_integer());
+    /// ```
     pub const fn is_integer(&self) -> bool {
         self.den == 1
     }
 
     /// `-self`, or `None` on overflow.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::Rational;
+    /// let r = Rational::new(1, 3).unwrap();
+    /// assert_eq!(r.checked_neg().unwrap().num(), -1);
+    /// assert!(Rational::from_int(i128::MIN).checked_neg().is_none());
+    /// ```
     pub fn checked_neg(self) -> Option<Self> {
         Some(Self {
             num: self.num.checked_neg()?,
@@ -93,6 +150,16 @@ impl Rational {
     }
 
     /// `self + other`, or `None` on overflow.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::Rational;
+    /// let a = Rational::new(1, 2).unwrap();
+    /// let b = Rational::new(1, 3).unwrap();
+    /// let s = a.checked_add(b).unwrap();
+    /// assert_eq!((s.num(), s.den()), (5, 6));
+    /// ```
     pub fn checked_add(self, other: Self) -> Option<Self> {
         let g = gcd(self.den, other.den).max(1);
         let scale_a = other.den / g;
@@ -106,11 +173,31 @@ impl Rational {
     }
 
     /// `self - other`, or `None` on overflow.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::Rational;
+    /// let a = Rational::new(1, 2).unwrap();
+    /// let b = Rational::new(1, 3).unwrap();
+    /// let d = a.checked_sub(b).unwrap();
+    /// assert_eq!((d.num(), d.den()), (1, 6));
+    /// ```
     pub fn checked_sub(self, other: Self) -> Option<Self> {
         self.checked_add(other.checked_neg()?)
     }
 
     /// `self * other`, or `None` on overflow.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::Rational;
+    /// let a = Rational::new(2, 3).unwrap();
+    /// let b = Rational::new(3, 4).unwrap();
+    /// let p = a.checked_mul(b).unwrap();
+    /// assert_eq!((p.num(), p.den()), (1, 2));
+    /// ```
     pub fn checked_mul(self, other: Self) -> Option<Self> {
         let g1 = gcd(self.num, other.den).max(1);
         let g2 = gcd(other.num, self.den).max(1);
@@ -120,6 +207,16 @@ impl Rational {
     }
 
     /// `self / other`, or `None` if `other` is zero or on overflow.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::Rational;
+    /// let a = Rational::new(1, 2).unwrap();
+    /// let q = a.checked_div(Rational::new(1, 4).unwrap()).unwrap();
+    /// assert_eq!((q.num(), q.den()), (2, 1));
+    /// assert!(a.checked_div(Rational::ZERO).is_none());
+    /// ```
     pub fn checked_div(self, other: Self) -> Option<Self> {
         if other.is_zero() {
             return None;
@@ -129,11 +226,26 @@ impl Rational {
     }
 
     /// The largest integer `<= self`, or `None` if it does not fit.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::Rational;
+    /// assert_eq!(Rational::new(-7, 2).unwrap().floor(), Some(-4));
+    /// ```
     pub fn floor(self) -> Option<i128> {
         Some(self.num.div_euclid(self.den))
     }
 
     /// Returns `true` when the value is below zero.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::Rational;
+    /// assert!(Rational::new(-1, 2).unwrap().is_negative());
+    /// assert!(!Rational::ZERO.is_negative());
+    /// ```
     pub const fn is_negative(&self) -> bool {
         self.num < 0
     }

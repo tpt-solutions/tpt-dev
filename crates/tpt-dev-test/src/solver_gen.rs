@@ -52,6 +52,22 @@ impl ConstrainedGen {
     /// Declares one real variable per name, and builds the constraint from them.
     ///
     /// The builder returns `None` if a formula overflows the solver's arithmetic.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::{Linear, Rational};
+    /// use tpt_dev_test::{ConstrainedGen, Generator, Rng, Seed};
+    ///
+    /// // x = 10, so every sample is 10.
+    /// let generator = ConstrainedGen::new(&["x"], |arena, v| {
+    ///     let ten = Linear::constant(Rational::from_int(10));
+    ///     arena.eq(&Linear::var(v[0]), &ten)
+    /// })
+    /// .unwrap();
+    /// let sample = generator.generate(&mut Rng::new(Seed(1)), 10);
+    /// assert_eq!(sample[0], Rational::from_int(10));
+    /// ```
     pub fn new<F>(names: &[&str], build: F) -> Result<Self, SetupError>
     where
         F: FnOnce(&mut Arena, &[Var]) -> Option<Formula>,
@@ -78,6 +94,23 @@ impl ConstrainedGen {
     }
 
     /// Sets the largest magnitude of the random lower bounds (default 10).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::{Linear, Rational};
+    /// use tpt_dev_test::{ConstrainedGen, Generator, Rng, Seed};
+    ///
+    /// let generator = ConstrainedGen::new(&["x"], |arena, v| {
+    ///     let four = Linear::constant(Rational::from_int(4));
+    ///     arena.eq(&Linear::var(v[0]), &four)
+    /// })
+    /// .unwrap()
+    /// .with_spread(2);
+    /// // The spread changes the random bounds, never the models: x is still 4.
+    /// let sample = generator.generate(&mut Rng::new(Seed(7)), 10);
+    /// assert_eq!(sample[0], Rational::from_int(4));
+    /// ```
     pub fn with_spread(mut self, spread: i64) -> Self {
         self.spread = spread.max(0);
         self

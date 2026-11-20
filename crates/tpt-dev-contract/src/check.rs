@@ -5,9 +5,10 @@ use std::collections::HashMap;
 use proc_macro2::{Delimiter, Group, Ident, Span, TokenStream, TokenTree};
 use quote::{format_ident, quote};
 use syn::spanned::Spanned;
-use syn::{Block, Expr, FnArg, ItemFn, Pat, Stmt, Type, parse_quote};
-use tpt_dev_solver::{Linear, Rational, Solver, Status};
+use syn::{Block, Expr, FnArg, ItemFn, Pat, ReturnType, Type, parse_quote};
+use tpt_dev_solver::{Formula, Linear, Rational, Solver, Status, Var};
 
+use crate::body;
 use crate::translate::{Translator, Val};
 
 /// What the solver established about one `ensures` clause.
@@ -45,38 +46,28 @@ fn is_integer_type(ty: &Type) -> bool {
     )
 }
 
-/// The name bound by a `let` pattern: `x` or `x: T`.
-fn binding_name(pat: &Pat) -> Option<String> {
-    match pat {
-        Pat::Ident(p) => Some(p.ident.to_string()),
-        Pat::Type(pt) => binding_name(&pt.pat),
-        _ => None,
+/// Joins the return points into one numeric result variable `result_var`.
+///
+/// Each path contributes `path ⇒ result_var = value`. Since the paths cover
+/// every way the body can finish, the result variable is pinned on every path.
+/// Returns `None` when a value is not numeric or the translation overflows.
+fn merge_returns(
+    tr: &mut Translator<'_>,
+    result_var: Var,
+    paths: Vec<(Formula, Val)>,
+    constraints: &mut Vec<Formula>,
+) -> Option<Val> {
+    let mut per_path = Vec::with_capacity(paths.len());
+    for (pc, v) in paths {
+        let Val::Num(value) = v else {
+            return None;
+        };
+        let eq = tr.arena.eq(&Linear::var(result_var), &value)?;
+        let not_pc = tr.arena.not(pc);
+        per_path.push(tr.arena.or(vec![not_pc, eq]));
     }
-}
-
-/// Symbolically runs straight-line `let` statements, then returns the tail value.
-fn body_value(tr: &mut Translator<'_>, block: &Block) -> Result<Val, String> {
-    let Some((last, init)) = block.stmts.split_last() else {
-        return Err("empty body".into());
-    };
-    for stmt in init {
-        match stmt {
-            Stmt::Local(local) => {
-                let name = binding_name(&local.pat).ok_or("unsupported `let` pattern")?;
-                let init = local.init.as_ref().ok_or("`let` without a value")?;
-                if init.diverge.is_some() {
-                    return Err("`let else` is not supported".into());
-                }
-                let v = tr.expr(&init.expr)?;
-                tr.env.insert(name, v);
-            }
-            _ => return Err("only `let` statements are supported in the body".into()),
-        }
-    }
-    match last {
-        Stmt::Expr(e, None) => tr.expr(e),
-        _ => Err("the body must end in an expression".into()),
-    }
+    constraints.push(tr.arena.and(per_path));
+    Some(Val::Num(Linear::var(result_var)))
 }
 
 /// Decides each `ensures` clause against the `requires` clauses and the body.
@@ -103,39 +94,38 @@ fn analyse(f: &ItemFn, requires: &[Expr], ensures: &[Expr]) -> Vec<Outcome> {
         snapshot_eqs.push((Linear::var(snap), Linear::var(v)));
         vars.push((name, v));
     }
+    // The value of a body with several return points.
+    let result_var = solver.declare("__tpt_result");
 
     // Build all formulas in one scope, so the arena borrow ends before solving.
     let (pre, negs) = {
-        let mut pres = Vec::new();
-        {
-            let mut tr = Translator {
-                arena: solver.arena_mut(),
-                env: params.clone(),
-                old: HashMap::new(),
-            };
-            for r in requires {
-                if let Ok(Val::Bool(f)) = tr.expr(r) {
-                    pres.push(f);
-                }
-            }
-            // A snapshot holds the entry value of its parameter.
-            for (snap, v) in &snapshot_eqs {
-                if let Some(eq) = tr.arena.eq(snap, v) {
-                    pres.push(eq);
-                }
-            }
-        }
-        let pre = solver.arena_mut().and(pres);
-
         let mut tr = Translator {
             arena: solver.arena_mut(),
             env: params.clone(),
             old: HashMap::new(),
         };
-        let result = body_value(&mut tr, &f.block);
+        let mut pres = Vec::new();
+        for r in requires {
+            if let Ok(Val::Bool(f)) = tr.expr(r) {
+                pres.push(f);
+            }
+        }
+        // A snapshot holds the entry value of its parameter.
+        for (snap, v) in &snapshot_eqs {
+            if let Some(eq) = tr.arena.eq(snap, v) {
+                pres.push(eq);
+            }
+        }
+
+        // The body's value, with the path conditions that the proof needs.
+        let result = match body::return_points(&mut tr, &f.block) {
+            Err(_) => None,
+            Ok(mut paths) if paths.len() == 1 => paths.pop().map(|(_, v)| v),
+            Ok(paths) => merge_returns(&mut tr, result_var, paths, &mut pres),
+        };
         let mut negs = Vec::with_capacity(ensures.len());
         match result {
-            Ok(rv) => {
+            Some(rv) => {
                 for e in ensures {
                     let mut env = params.clone();
                     env.insert("result".into(), rv.clone());
@@ -150,8 +140,9 @@ fn analyse(f: &ItemFn, requires: &[Expr], ensures: &[Expr]) -> Vec<Outcome> {
                     });
                 }
             }
-            Err(_) => negs = vec![None; ensures.len()],
+            None => negs = vec![None; ensures.len()],
         }
+        let pre = tr.arena.and(pres);
         (pre, negs)
     };
 
@@ -368,10 +359,17 @@ pub(crate) fn generate(mut f: ItemFn, requires: &[Expr], ensures: &[Expr]) -> To
     let new_block: Block = if ens_checks.is_empty() {
         parse_quote!({ #(#req_checks)* #body })
     } else {
+        // The body runs in a closure, so that an early `return` yields the value
+        // to the checks below instead of leaving the function unchecked.
+        let ret: Type = match &f.sig.output {
+            ReturnType::Type(_, ty) => (**ty).clone(),
+            ReturnType::Default => parse_quote!(()),
+        };
         parse_quote!({
             #(#req_checks)*
             #(#snap_lets)*
-            let result = #body;
+            #[allow(clippy::redundant_closure_call)]
+            let result: #ret = (|| -> #ret #body)();
             #(#ens_checks)*
             result
         })

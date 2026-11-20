@@ -37,6 +37,16 @@ pub struct IntRange {
 
 impl IntRange {
     /// The range `lo..=hi`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_test::{Generator, IntRange, Rng, Seed};
+    ///
+    /// let range = IntRange::new(1, 6);
+    /// let roll = range.generate(&mut Rng::new(Seed(3)), 10);
+    /// assert!((1..=6).contains(&roll));
+    /// ```
     pub const fn new(lo: i64, hi: i64) -> Self {
         Self { lo, hi }
     }
@@ -110,6 +120,16 @@ pub struct VecOf<G> {
 
 impl<G> VecOf<G> {
     /// Vectors of `elem` values, up to `max_len` long.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_test::{Bools, Generator, Rng, Seed, VecOf};
+    ///
+    /// let vectors = VecOf::new(Bools, 4);
+    /// let v = vectors.generate(&mut Rng::new(Seed(5)), 10);
+    /// assert!(v.len() <= 4);
+    /// ```
     pub const fn new(elem: G, max_len: usize) -> Self {
         Self { elem, max_len }
     }

@@ -1,0 +1,5 @@
+error: `ensures` clause `result > 0` is false: counterexample: x = 0
+ --> tests/ui/refuted_return.rs:3:29
+  |
+3 | #[tpt_dev_contract::ensures(result > 0)]
+  |                             ^^^^^^

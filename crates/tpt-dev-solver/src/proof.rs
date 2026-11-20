@@ -87,11 +87,29 @@ pub struct Proof {
 
 impl Proof {
     /// Builds a proof from its steps. Nothing is checked until [`check_proof`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::Proof;
+    ///
+    /// let proof = Proof::new(Vec::new());
+    /// assert!(proof.steps().is_empty());
+    /// ```
     pub fn new(steps: Vec<ProofStep>) -> Self {
         Self { steps }
     }
 
     /// The steps, in order.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::Proof;
+    ///
+    /// let proof = Proof::new(Vec::new());
+    /// assert!(proof.steps().is_empty());
+    /// ```
     pub fn steps(&self) -> &[ProofStep] {
         &self.steps
     }

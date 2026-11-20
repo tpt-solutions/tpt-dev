@@ -8,6 +8,7 @@ extern crate std;
 
 pub mod const_check;
 mod machine;
+mod macros;
 
 pub use machine::{Analysis, Deadlock, DeadlockKind, Error, Machine, StateId, Transition};
 pub use tpt_dev_solver::{Arena, Formula, Linear, Rational, Var};

@@ -1,0 +1,13 @@
+; expect: sat
+(declare-const v1 Real)
+(declare-const v2 Real)
+(declare-const v3 Real)
+(declare-const v4 Real)
+(declare-const v5 Real)
+(assert (>= v1 (- 1)))
+(assert (>= v2 (- 1)))
+(assert (>= v3 (- 1)))
+(assert (>= v4 (- 1)))
+(assert (>= v5 (- 1)))
+(assert (= (+ v1 v2 v3 v4 v5) 0))
+(check-sat)

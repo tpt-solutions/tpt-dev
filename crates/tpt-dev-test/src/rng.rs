@@ -12,11 +12,30 @@ pub struct Rng {
 
 impl Rng {
     /// Creates a generator from a seed.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_test::{Rng, Seed};
+    ///
+    /// let mut a = Rng::new(Seed(1));
+    /// let mut b = Rng::new(Seed(1));
+    /// assert_eq!(a.next_u64(), b.next_u64());
+    /// ```
     pub const fn new(seed: Seed) -> Self {
         Self { state: seed.0 }
     }
 
     /// The next 64 random bits.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_test::{Rng, Seed};
+    ///
+    /// let mut rng = Rng::new(Seed(1));
+    /// assert_ne!(rng.next_u64(), rng.next_u64());
+    /// ```
     pub fn next_u64(&mut self) -> u64 {
         self.state = self.state.wrapping_add(0x9E37_79B9_7F4A_7C15);
         let mut z = self.state;
@@ -28,6 +47,18 @@ impl Rng {
     /// A uniform value in `lo..=hi`. Uses rejection sampling, so the result is unbiased.
     ///
     /// Returns `lo` when `lo >= hi`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_test::{Rng, Seed};
+    ///
+    /// let mut rng = Rng::new(Seed(2));
+    /// let v = rng.range_i64(-3, 3);
+    /// assert!((-3..=3).contains(&v));
+    /// // A single-value range always returns that value.
+    /// assert_eq!(rng.range_i64(4, 4), 4);
+    /// ```
     pub fn range_i64(&mut self, lo: i64, hi: i64) -> i64 {
         if lo >= hi {
             return lo;
@@ -43,6 +74,17 @@ impl Rng {
     }
 
     /// A fair coin.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_test::{Rng, Seed};
+    ///
+    /// let mut rng = Rng::new(Seed(9));
+    /// let flips: Vec<bool> = (0..64).map(|_| rng.bool()).collect();
+    /// assert!(flips.contains(&true));
+    /// assert!(flips.contains(&false));
+    /// ```
     pub fn bool(&mut self) -> bool {
         self.next_u64() & 1 == 1
     }

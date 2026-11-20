@@ -8,7 +8,8 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 readme = "README.md"
-categories = ["no-std"]
+keywords = ["contracts", "design-by-contract", "verification", "proc-macro"]
+categories = ["development-tools", "rust-patterns"]
 
 # A proc-macro crate runs on the host, so it cannot target no_std bare metal.
 # CI builds it for the host only.
@@ -23,6 +24,8 @@ tpt-dev-solver = { version = "0.0.0", path = "../tpt-dev-solver" }
 
 [dev-dependencies]
 trybuild = "1"
+# Used by the counterexample example, which turns a failed proof into a regression test.
+tpt-dev-fuzz = { version = "0.0.0", path = "../tpt-dev-fuzz" }
 
 [lints]
 workspace = true

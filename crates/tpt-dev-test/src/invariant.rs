@@ -16,6 +16,24 @@ pub struct Candidate {
 
 impl Candidate {
     /// The bound as a solver formula over `vars`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::{Rational, Solver};
+    /// use tpt_dev_test::Candidate;
+    ///
+    /// let mut solver = Solver::new();
+    /// let x = solver.declare("x");
+    /// let y = solver.declare("y");
+    /// // The bound x + y <= 10 becomes a solver formula over x and y.
+    /// let candidate = Candidate { coeffs: vec![(0, 1), (1, 1)], bound: Rational::from_int(10) };
+    /// assert!(candidate.to_formula(solver.arena_mut(), &[x, y]).is_some());
+    ///
+    /// // A variable index past the end of `vars` has no formula.
+    /// let bad = Candidate { coeffs: vec![(5, 1)], bound: Rational::ZERO };
+    /// assert!(bad.to_formula(solver.arena_mut(), &[x, y]).is_none());
+    /// ```
     pub fn to_formula(&self, arena: &mut Arena, vars: &[Var]) -> Option<Formula> {
         let lhs = self.lhs(vars)?;
         let rhs = Linear::constant(self.bound);
@@ -131,6 +149,24 @@ pub enum Verdict {
 /// The solver checks `pre and not candidate`. Unsat means the candidate is a
 /// proven invariant of the precondition. Sat gives a counterexample. The
 /// solver's assertions are restored afterwards.
+///
+/// # Examples
+///
+/// ```
+/// use tpt_dev_solver::{Linear, Rational, Solver};
+/// use tpt_dev_test::{Candidate, Verdict, prove};
+///
+/// let mut solver = Solver::new();
+/// let x = solver.declare("x");
+/// // Precondition: x >= 5. Candidate: -x <= 0, that is x >= 0.
+/// let pre = solver
+///     .arena_mut()
+///     .ge(&Linear::var(x), &Linear::constant(Rational::from_int(5)))
+///     .unwrap();
+/// let candidate = Candidate { coeffs: vec![(0, -1)], bound: Rational::ZERO };
+/// let verdict = prove(&mut solver, &[x], pre, &candidate).unwrap();
+/// assert!(matches!(verdict, Verdict::Holds));
+/// ```
 pub fn prove(
     solver: &mut Solver,
     vars: &[Var],

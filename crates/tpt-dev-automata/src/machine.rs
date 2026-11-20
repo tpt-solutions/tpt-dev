@@ -13,6 +13,18 @@ pub struct StateId(u32);
 
 impl StateId {
     /// The state's index in declaration order.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_automata::Machine;
+    ///
+    /// let mut m = Machine::new();
+    /// let first = m.state("first");
+    /// let second = m.state("second");
+    /// assert_eq!(first.index(), 0);
+    /// assert_eq!(second.index(), 1);
+    /// ```
     pub const fn index(&self) -> usize {
         self.0 as usize
     }
@@ -71,6 +83,18 @@ pub struct Analysis {
 
 impl Analysis {
     /// Returns `true` when no reachable state can get stuck.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_automata::Machine;
+    ///
+    /// let mut m = Machine::new();
+    /// let s = m.state("done");
+    /// m.mark_final(s);
+    /// let report = m.analyze(s).unwrap();
+    /// assert!(report.is_deadlock_free());
+    /// ```
     pub fn is_deadlock_free(&self) -> bool {
         self.deadlocks.is_empty()
     }
@@ -134,6 +158,15 @@ impl Default for Machine {
 
 impl Machine {
     /// Creates an empty machine.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_automata::Machine;
+    ///
+    /// let m = Machine::new();
+    /// assert!(m.transitions().is_empty());
+    /// ```
     pub const fn new() -> Self {
         Self {
             solver: Solver::new(),
@@ -145,6 +178,16 @@ impl Machine {
     }
 
     /// Declares a real variable that guards may use.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_automata::Machine;
+    ///
+    /// let mut m = Machine::new();
+    /// let x = m.declare("x");
+    /// assert_eq!(x.index(), 0);
+    /// ```
     pub fn declare(&mut self, name: &str) -> Var {
         let v = self.solver.declare(name);
         self.vars.push(v);
@@ -152,11 +195,36 @@ impl Machine {
     }
 
     /// Arena for building guard formulas over the declared variables.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_automata::{Linear, Machine, Rational};
+    ///
+    /// let mut m = Machine::new();
+    /// let x = m.declare("x");
+    /// let zero = Linear::constant(Rational::ZERO);
+    /// let positive = m.arena_mut().gt(&Linear::var(x), &zero).unwrap();
+    /// let not_positive = m.arena_mut().not(positive);
+    /// let _ = not_positive;
+    /// ```
     pub fn arena_mut(&mut self) -> &mut Arena {
         self.solver.arena_mut()
     }
 
     /// Adds a state and returns its id.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_automata::Machine;
+    ///
+    /// let mut m = Machine::new();
+    /// let idle = m.state("idle");
+    /// let busy = m.state("busy");
+    /// assert_ne!(idle, busy);
+    /// assert_eq!(m.state_name(busy), Some("busy"));
+    /// ```
     pub fn state(&mut self, name: &str) -> StateId {
         self.states.push(String::from(name));
         self.finals.push(false);
@@ -164,6 +232,18 @@ impl Machine {
     }
 
     /// Marks a state as final. A final state may legitimately have no way out.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_automata::Machine;
+    ///
+    /// let mut m = Machine::new();
+    /// let s = m.state("a");
+    /// assert!(!m.analyze(s).unwrap().is_deadlock_free());
+    /// m.mark_final(s);
+    /// assert!(m.analyze(s).unwrap().is_deadlock_free());
+    /// ```
     pub fn mark_final(&mut self, s: StateId) {
         if let Some(f) = self.finals.get_mut(s.index()) {
             *f = true;
@@ -171,11 +251,33 @@ impl Machine {
     }
 
     /// Name of a state.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_automata::Machine;
+    ///
+    /// let mut m = Machine::new();
+    /// let s = m.state("idle");
+    /// assert_eq!(m.state_name(s), Some("idle"));
+    /// ```
     pub fn state_name(&self, s: StateId) -> Option<&str> {
         self.states.get(s.index()).map(String::as_str)
     }
 
     /// Adds a transition. Fails if a state is unknown.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_automata::Machine;
+    ///
+    /// let mut m = Machine::new();
+    /// let a = m.state("a");
+    /// let b = m.state("b");
+    /// m.transition(a, b, "go", None).unwrap();
+    /// assert_eq!(m.transitions().len(), 1);
+    /// ```
     pub fn transition(
         &mut self,
         from: StateId,
@@ -196,6 +298,18 @@ impl Machine {
     }
 
     /// The transitions added so far.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_automata::Machine;
+    ///
+    /// let mut m = Machine::new();
+    /// let a = m.state("a");
+    /// let b = m.state("b");
+    /// m.transition(a, b, "go", None).unwrap();
+    /// assert_eq!(m.transitions()[0].event, "go");
+    /// ```
     pub fn transitions(&self) -> &[Transition] {
         &self.transitions
     }
@@ -207,6 +321,22 @@ impl Machine {
     /// really is unreachable. For each reachable, non-final state, the solver
     /// checks whether its outgoing guards can all be false at once. If they
     /// can, the solver's valuation is the witness.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_automata::Machine;
+    ///
+    /// let mut m = Machine::new();
+    /// let a = m.state("a");
+    /// let b = m.state("b");
+    /// let c = m.state("c");
+    /// m.mark_final(b);
+    /// m.transition(a, b, "go", None).unwrap();
+    /// let report = m.analyze(a).unwrap();
+    /// assert!(report.is_deadlock_free());
+    /// assert_eq!(report.unreachable, vec![c]);
+    /// ```
     pub fn analyze(&mut self, initial: StateId) -> Result<Analysis, Error> {
         if initial.index() >= self.states.len() {
             return Err(Error::UnknownState);

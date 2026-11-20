@@ -15,7 +15,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::rational::Rational;
-use crate::solver::{Solver, Status};
+use crate::solver::{Budget, Solver, Status};
 use crate::term::{Formula, Linear, Var};
 
 /// An error in a script. The message says what was wrong.
@@ -88,6 +88,41 @@ fn parse_sexps(src: &str) -> Result<Vec<Sexp>, ScriptError> {
     Ok(stack.pop().unwrap_or_default())
 }
 
+/// Replaces every `let`-bound name in `t` by its bound term, so the result has
+/// no `let` left. Bindings are parallel: each bound term sees the enclosing
+/// scope only.
+fn expand_let(t: &Sexp, env: &[(String, Sexp)]) -> Result<Sexp, ScriptError> {
+    match t {
+        Sexp::Atom(a) => Ok(env
+            .iter()
+            .rev()
+            .find(|(name, _)| name == a)
+            .map_or_else(|| t.clone(), |(_, value)| value.clone())),
+        Sexp::List(items) => {
+            if let [Sexp::Atom(kw), Sexp::List(bindings), body] = items.as_slice()
+                && kw.as_str() == "let"
+            {
+                let mut inner = env.to_vec();
+                for binding in bindings {
+                    let Sexp::List(pair) = binding else {
+                        return err("malformed let binding");
+                    };
+                    let [Sexp::Atom(name), value] = pair.as_slice() else {
+                        return err("malformed let binding");
+                    };
+                    inner.push((name.clone(), expand_let(value, env)?));
+                }
+                return expand_let(body, &inner);
+            }
+            let expanded = items
+                .iter()
+                .map(|item| expand_let(item, env))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(Sexp::List(expanded))
+        }
+    }
+}
+
 /// A parsed term: a real-valued linear expression or a Boolean formula.
 #[derive(Clone, Debug)]
 enum Val {
@@ -124,6 +159,16 @@ impl Default for Session {
 
 impl Session {
     /// Creates an empty session.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::Session;
+    ///
+    /// let mut session = Session::new();
+    /// let out = session.run("(declare-fun x () Real)\n(check-sat)").unwrap();
+    /// assert!(out.starts_with("sat"));
+    /// ```
     pub const fn new() -> Self {
         Self {
             solver: Solver::new(),
@@ -133,12 +178,50 @@ impl Session {
     }
 
     /// The underlying solver.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::Session;
+    ///
+    /// let mut session = Session::new();
+    /// session.run("(declare-fun x () Real)\n(assert (> x 1))").unwrap();
+    /// assert_eq!(session.solver().assertions().len(), 1);
+    /// ```
     pub fn solver(&self) -> &Solver {
         &self.solver
     }
 
+    /// Sets the work limits for later `check-sat` commands. When a limit is
+    /// hit, `check-sat` reports `unknown` as a script error.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::{Budget, Session};
+    ///
+    /// let mut session = Session::new();
+    /// // With no formula nodes allowed, check-sat reports unknown as a script error.
+    /// session.set_budget(Budget { max_formula_nodes: 0, ..Budget::UNLIMITED });
+    /// assert!(session.run("(declare-fun x () Real)\n(assert (> x 1))\n(check-sat)").is_err());
+    /// ```
+    pub fn set_budget(&mut self, budget: Budget) {
+        self.solver.set_budget(budget);
+    }
+
     /// Runs a script and returns the text it prints, one response per line.
     /// Stops at the first error, or at `exit`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::Session;
+    ///
+    /// let mut session = Session::new();
+    /// assert!(session.run("(declare-fun x () Real)\n(check-sat)").is_ok());
+    /// // Undeclared symbols are an error, reported to the caller.
+    /// assert!(session.run("(assert (> nope 1))").is_err());
+    /// ```
     pub fn run(&mut self, script: &str) -> Result<String, ScriptError> {
         let cmds = parse_sexps(script)?;
         let mut out = String::new();
@@ -185,9 +268,38 @@ impl Session {
             },
             "check-sat" => {
                 let status = self.solver.check().map_err(|_| ScriptError {
-                    message: "unknown: arithmetic overflow".to_string(),
+                    message: "unknown: limit reached or arithmetic overflow".to_string(),
                 })?;
                 self.last = Some(status);
+                out.push_str(match status {
+                    Status::Sat => "sat\n",
+                    Status::Unsat => "unsat\n",
+                });
+            }
+            "check-sat-assuming" => {
+                // Equivalent to push, assert each assumption, check-sat, pop.
+                let [Sexp::List(lits)] = args else {
+                    return err("check-sat-assuming takes one list of Boolean terms");
+                };
+                let mut assumptions = Vec::with_capacity(lits.len());
+                for lit in lits {
+                    match self.term(lit)? {
+                        Val::Bool(f) => assumptions.push(f),
+                        Val::Real(_) => return err("assumptions must be Boolean"),
+                    }
+                }
+                self.solver.push();
+                for f in assumptions {
+                    self.solver.assert(f);
+                }
+                let result = self.solver.check();
+                if !self.solver.pop() {
+                    return err("internal error: lost assumption scope");
+                }
+                self.last = None;
+                let status = result.map_err(|_| ScriptError {
+                    message: "unknown: limit reached or arithmetic overflow".to_string(),
+                })?;
                 out.push_str(match status {
                     Status::Sat => "sat\n",
                     Status::Unsat => "unsat\n",
@@ -251,6 +363,10 @@ impl Session {
         match t {
             Sexp::Atom(a) => self.atom_term(a),
             Sexp::List(items) => {
+                if matches!(items.first(), Some(Sexp::Atom(kw)) if kw.as_str() == "let") {
+                    let expanded = expand_let(t, &[])?;
+                    return self.term(&expanded);
+                }
                 let Some((head, args)) = items.split_first() else {
                     return err("empty term");
                 };
@@ -364,6 +480,29 @@ impl Session {
                 }
                 Ok(Val::Bool(acc))
             }
+            "ite" => match args {
+                [c, a, b] => {
+                    // Only Boolean `ite` is supported.
+                    let cond = match self.term(c)? {
+                        Val::Bool(f) => f,
+                        Val::Real(_) => return err("'ite' needs a Boolean condition"),
+                    };
+                    let then = match self.term(a)? {
+                        Val::Bool(f) => f,
+                        Val::Real(_) => return err("only Boolean 'ite' is supported"),
+                    };
+                    let other = match self.term(b)? {
+                        Val::Bool(f) => f,
+                        Val::Real(_) => return err("only Boolean 'ite' is supported"),
+                    };
+                    let ar = self.solver.arena_mut();
+                    let not_cond = ar.not(cond);
+                    let yes = ar.and(vec![cond, then]);
+                    let no = ar.and(vec![not_cond, other]);
+                    Ok(Val::Bool(ar.or(vec![yes, no])))
+                }
+                _ => err("'ite' takes three arguments"),
+            },
             other => err(format!("unsupported operator '{other}'")),
         }
     }

@@ -89,21 +89,51 @@ pub struct Atom {
 
 impl Atom {
     /// Creates the atom `x[var] <cmp> value`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_automata::const_check::{Atom, Cmp};
+    /// let a = Atom::new(1, Cmp::Le, 5);
+    /// assert_eq!((a.var(), a.value()), (1, 5));
+    /// assert_eq!(a.cmp(), Cmp::Le);
+    /// ```
     pub const fn new(var: usize, cmp: Cmp, value: i64) -> Self {
         Self { var, cmp, value }
     }
 
     /// Index of the variable this atom constrains.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_automata::const_check::{Atom, Cmp};
+    /// assert_eq!(Atom::new(2, Cmp::Gt, 0).var(), 2);
+    /// ```
     pub const fn var(&self) -> usize {
         self.var
     }
 
     /// The comparison.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_automata::const_check::{Atom, Cmp};
+    /// assert_eq!(Atom::new(0, Cmp::Eq, 3).cmp(), Cmp::Eq);
+    /// ```
     pub const fn cmp(&self) -> Cmp {
         self.cmp
     }
 
     /// The constant the variable is compared with.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_automata::const_check::{Atom, Cmp};
+    /// assert_eq!(Atom::new(0, Cmp::Ge, -4).value(), -4);
+    /// ```
     pub const fn value(&self) -> i64 {
         self.value
     }
@@ -172,6 +202,19 @@ pub enum Verdict {
 ///
 /// This is the same check as [`assert_deadlock_free`], but it returns the
 /// verdict so that callers can inspect it.
+///
+/// # Examples
+///
+/// ```
+/// use tpt_dev_automata::const_check::{check_deadlock_free, Atom, Cmp, Edge, Spec, Verdict};
+///
+/// const POS: &[Atom] = &[Atom::new(0, Cmp::Gt, 0)];
+/// const EDGES: &[Edge<'_>] = &[Edge { from: 0, to: 1, guard: POS }];
+/// const SPEC: Spec<'_> = Spec { states: 2, vars: 1, initial: 0, finals: &[1], edges: EDGES };
+///
+/// // The guard x > 0 can be false, so state 0 can get stuck.
+/// assert_eq!(check_deadlock_free(&SPEC), Verdict::GuardsIncomplete { state: 0 });
+/// ```
 pub const fn check_deadlock_free(spec: &Spec<'_>) -> Verdict {
     if spec.states > MAX_STATES || spec.vars > MAX_VARS {
         return Verdict::TooLarge;
@@ -242,6 +285,23 @@ pub const fn check_deadlock_free(spec: &Spec<'_>) -> Verdict {
 /// Use it as `const _: () = assert_deadlock_free(&SPEC);`. The message names the
 /// kind of failure but not the state. Call [`check_deadlock_free`] at run time
 /// to get the state.
+///
+/// # Examples
+///
+/// ```
+/// use tpt_dev_automata::const_check::{assert_deadlock_free, Atom, Cmp, Edge, Spec};
+///
+/// const GO: &[Atom] = &[Atom::new(0, Cmp::Ge, 0)];
+/// const STOP: &[Atom] = &[Atom::new(0, Cmp::Lt, 0)];
+/// const EDGES: &[Edge<'_>] = &[
+///     Edge { from: 0, to: 1, guard: GO },
+///     Edge { from: 0, to: 0, guard: STOP },
+/// ];
+/// const SPEC: Spec<'_> = Spec { states: 2, vars: 1, initial: 0, finals: &[1], edges: EDGES };
+///
+/// // The two guards cover every value of x, so this compiles.
+/// const _: () = assert_deadlock_free(&SPEC);
+/// ```
 #[allow(clippy::panic)]
 pub const fn assert_deadlock_free(spec: &Spec<'_>) {
     match check_deadlock_free(spec) {

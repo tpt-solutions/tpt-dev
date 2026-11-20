@@ -10,6 +10,7 @@
 use proc_macro::TokenStream;
 use syn::{Expr, ItemFn, parse_macro_input};
 
+mod body;
 mod check;
 mod translate;
 
@@ -22,6 +23,23 @@ enum Kind {
 /// Precondition of a function: `#[requires(x >= 0)]`.
 ///
 /// Also accepts any `#[ensures]` attributes on the same function.
+///
+/// # Examples
+///
+/// ```
+/// use tpt_dev_contract::requires;
+///
+/// #[requires(x >= 0)]
+/// fn sqrt_floor(x: i64) -> i64 {
+///     let mut r = 0;
+///     while (r + 1) * (r + 1) <= x {
+///         r += 1;
+///     }
+///     r
+/// }
+///
+/// assert_eq!(sqrt_floor(10), 3);
+/// ```
 #[proc_macro_attribute]
 pub fn requires(args: TokenStream, item: TokenStream) -> TokenStream {
     contract(Kind::Requires, args, item)
@@ -31,6 +49,19 @@ pub fn requires(args: TokenStream, item: TokenStream) -> TokenStream {
 /// is the return value.
 ///
 /// Also accepts any `#[requires]` attributes on the same function.
+///
+/// # Examples
+///
+/// ```
+/// use tpt_dev_contract::ensures;
+///
+/// #[ensures(result >= x)]
+/// fn bump(x: i64) -> i64 {
+///     x + 1
+/// }
+///
+/// assert_eq!(bump(4), 5);
+/// ```
 #[proc_macro_attribute]
 pub fn ensures(args: TokenStream, item: TokenStream) -> TokenStream {
     contract(Kind::Ensures, args, item)

@@ -89,6 +89,16 @@ where
     T: FnMut(&[i64], &mut Coverage) -> Outcome,
 {
     /// A fuzzer for inputs of `arity` integers.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_fuzz::{Config, Coverage, Fuzzer, Outcome};
+    ///
+    /// let target = |_input: &[i64], _cov: &mut Coverage| Outcome::Pass;
+    /// let fuzzer = Fuzzer::new(target, 2, Config::default());
+    /// drop(fuzzer);
+    /// ```
     pub fn new(target: T, arity: usize, config: Config) -> Self {
         Self {
             target,
@@ -103,6 +113,24 @@ where
     /// Runs the fuzzer. `seeds` start the corpus; seeds of the wrong length are ignored.
     ///
     /// Returns the first crash found, minimised, or `None` if the budget runs out.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_fuzz::{Config, Coverage, Fuzzer, Outcome};
+    ///
+    /// // The bug is any first coordinate above 5.
+    /// let target = |input: &[i64], _cov: &mut Coverage| {
+    ///     if input[0] > 5 {
+    ///         Outcome::Crash(format!("x = {}", input[0]))
+    ///     } else {
+    ///         Outcome::Pass
+    ///     }
+    /// };
+    /// let mut fuzzer = Fuzzer::new(target, 1, Config { iterations: 1000, ..Config::default() });
+    /// let found = fuzzer.run(&[vec![0]]).expect("the fuzzer should find the bug");
+    /// assert!(found.input[0] > 5);
+    /// ```
     pub fn run(&mut self, seeds: &[Vec<i64>]) -> Option<Found> {
         if self.arity == 0 {
             return None;
@@ -219,6 +247,24 @@ where
 ///
 /// Each coordinate moves toward zero by halving, and then by single steps,
 /// as long as the target still crashes.
+///
+/// # Examples
+///
+/// ```
+/// use tpt_dev_fuzz::{Coverage, Outcome, minimise};
+///
+/// let mut target = |input: &[i64], _cov: &mut Coverage| {
+///     if input[0] > 5 {
+///         Outcome::Crash("too big".to_string())
+///     } else {
+///         Outcome::Pass
+///     }
+/// };
+/// let (small, message) = minimise(&mut target, &[900]).unwrap();
+/// assert_eq!(message, "too big");
+/// assert!(small[0] > 5);
+/// assert!(minimise(&mut target, &[3]).is_none());
+/// ```
 pub fn minimise<T>(target: &mut T, input: &[i64]) -> Option<(Vec<i64>, String)>
 where
     T: FnMut(&[i64], &mut Coverage) -> Outcome,

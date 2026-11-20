@@ -44,16 +44,49 @@ pub struct Atom {
 
 impl Atom {
     /// The atom `sum(c_i * x_i) <= bound`. Each pair is `(variable index, coefficient)`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_test::Atom;
+    ///
+    /// // x0 + 2 * x1 <= 10
+    /// let atom = Atom::le(&[(0, 1), (1, 2)], 10);
+    /// assert_eq!(atom, Atom::le(&[(0, 1), (1, 2)], 10));
+    /// assert_ne!(atom, Atom::ge(&[(0, 1), (1, 2)], 10));
+    /// ```
     pub fn le(terms: &[(usize, i64)], bound: i64) -> Self {
         Self::new(terms, bound, Rel::Le)
     }
 
     /// The atom `sum(c_i * x_i) >= bound`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_test::Atom;
+    ///
+    /// // x0 >= 3
+    /// let atom = Atom::ge(&[(0, 1)], 3);
+    /// assert_eq!(atom, Atom::ge(&[(0, 1)], 3));
+    /// assert_ne!(atom, Atom::le(&[(0, 1)], 3));
+    /// ```
     pub fn ge(terms: &[(usize, i64)], bound: i64) -> Self {
         Self::new(terms, bound, Rel::Ge)
     }
 
     /// The atom `sum(c_i * x_i) == bound`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_test::Atom;
+    ///
+    /// // x0 == 0
+    /// let atom = Atom::eq(&[(0, 1)], 0);
+    /// assert_eq!(atom, Atom::eq(&[(0, 1)], 0));
+    /// assert_ne!(atom, Atom::le(&[(0, 1)], 0));
+    /// ```
     pub fn eq(terms: &[(usize, i64)], bound: i64) -> Self {
         Self::new(terms, bound, Rel::Eq)
     }
@@ -121,6 +154,16 @@ pub struct Affine {
 
 impl Affine {
     /// The expression `sum(c_i * x_i) + constant`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_test::Affine;
+    ///
+    /// // x0 + x1 + 1
+    /// let next = Affine::new(&[(0, 1), (1, 1)], 1);
+    /// assert_eq!(next, Affine::new(&[(0, 1), (1, 1)], 1));
+    /// ```
     pub fn new(terms: &[(usize, i64)], constant: i64) -> Self {
         Self {
             terms: terms.to_vec(),
@@ -129,6 +172,15 @@ impl Affine {
     }
 
     /// The expression `x_i`, which keeps a variable unchanged.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_test::Affine;
+    ///
+    /// // Keeps x2 unchanged.
+    /// assert_eq!(Affine::var(2), Affine::new(&[(2, 1)], 0));
+    /// ```
     pub fn var(i: usize) -> Self {
         Self::new(&[(i, 1)], 0)
     }
@@ -152,6 +204,19 @@ pub struct Transition {
 
 impl Transition {
     /// A transition with the given guard and one update per state variable.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_test::{Affine, Atom, Transition};
+    ///
+    /// // While x0 <= 9, increment x0.
+    /// let step = Transition::new(
+    ///     vec![Atom::le(&[(0, 1)], 9)],
+    ///     vec![Affine::new(&[(0, 1)], 1)],
+    /// );
+    /// assert_eq!(step, Transition::new(vec![Atom::le(&[(0, 1)], 9)], vec![Affine::new(&[(0, 1)], 1)]));
+    /// ```
     pub fn new(guard: Vec<Atom>, updates: Vec<Affine>) -> Self {
         Self { guard, updates }
     }
@@ -189,6 +254,26 @@ impl TransitionSystem {
     /// Checks the variable indices and update counts, then builds the system.
     ///
     /// An empty `transitions` list means no step is possible.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_test::{Affine, Atom, SpecError, Transition, TransitionSystem};
+    ///
+    /// // One counter: start at 0, count up while x0 <= 9, and check x0 <= 10.
+    /// let system = TransitionSystem::new(
+    ///     1,
+    ///     vec![Atom::eq(&[(0, 1)], 0)],
+    ///     vec![Transition::new(vec![Atom::le(&[(0, 1)], 9)], vec![Affine::new(&[(0, 1)], 1)])],
+    ///     vec![Atom::le(&[(0, 1)], 10)],
+    /// )
+    /// .unwrap();
+    /// assert_eq!(system.nvars(), 1);
+    ///
+    /// // A transition that does not update every variable is refused.
+    /// let bad = TransitionSystem::new(1, vec![], vec![Transition::new(vec![], vec![])], vec![]);
+    /// assert_eq!(bad, Err(SpecError::UpdateCount));
+    /// ```
     pub fn new(
         nvars: usize,
         init: Vec<Atom>,
@@ -225,6 +310,15 @@ impl TransitionSystem {
     }
 
     /// The number of state variables.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_test::TransitionSystem;
+    ///
+    /// let system = TransitionSystem::new(2, vec![], vec![], vec![]).unwrap();
+    /// assert_eq!(system.nvars(), 2);
+    /// ```
     pub fn nvars(&self) -> usize {
         self.nvars
     }

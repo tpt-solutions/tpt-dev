@@ -110,6 +110,15 @@ impl Default for Solver {
 
 impl Solver {
     /// Creates a solver with no variables and no assertions.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::Solver;
+    ///
+    /// let solver = Solver::new();
+    /// assert!(solver.assertions().is_empty());
+    /// ```
     pub const fn new() -> Self {
         Self {
             arena: Arena::new(),
@@ -122,43 +131,130 @@ impl Solver {
     }
 
     /// Declares a real variable.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::Solver;
+    ///
+    /// let mut solver = Solver::new();
+    /// let x = solver.declare("x");
+    /// assert_eq!(solver.arena().var_name(x), "x");
+    /// ```
     pub fn declare(&mut self, name: &str) -> Var {
         self.model = None;
         self.arena.declare(name)
     }
 
     /// Read access to the formula arena.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::Solver;
+    ///
+    /// let mut solver = Solver::new();
+    /// solver.declare("x");
+    /// assert_eq!(solver.arena().num_vars(), 1);
+    /// ```
     pub fn arena(&self) -> &Arena {
         &self.arena
     }
 
     /// Write access to the formula arena, for building formulas.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::{Solver, Status};
+    ///
+    /// let mut solver = Solver::new();
+    /// let f = solver.arena_mut().constant(false);
+    /// solver.assert(f);
+    /// assert_eq!(solver.check(), Ok(Status::Unsat));
+    /// ```
     pub fn arena_mut(&mut self) -> &mut Arena {
         &mut self.arena
     }
 
     /// Sets the limits for later checks. See [`Budget`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::{Budget, Solver};
+    ///
+    /// let mut solver = Solver::new();
+    /// solver.set_budget(Budget { max_clauses: 10, ..Budget::UNLIMITED });
+    /// assert_eq!(solver.budget().max_clauses, 10);
+    /// ```
     pub fn set_budget(&mut self, budget: Budget) {
         self.budget = budget;
     }
 
     /// The current limits.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::{Budget, Solver};
+    ///
+    /// assert_eq!(Solver::new().budget(), Budget::UNLIMITED);
+    /// ```
     pub fn budget(&self) -> Budget {
         self.budget
     }
 
     /// The assertions in the current scopes, in the order they were made.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::Solver;
+    ///
+    /// let mut solver = Solver::new();
+    /// let f = solver.arena_mut().constant(true);
+    /// solver.assert(f);
+    /// assert_eq!(solver.assertions().len(), 1);
+    /// ```
     pub fn assertions(&self) -> &[Formula] {
         &self.assertions
     }
 
     /// Asserts `f` in the current scope.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::Solver;
+    ///
+    /// let mut solver = Solver::new();
+    /// let f = solver.arena_mut().constant(true);
+    /// solver.assert(f);
+    /// assert_eq!(solver.assertions(), &[f]);
+    /// ```
     pub fn assert(&mut self, f: Formula) {
         self.model = None;
         self.assertions.push(f);
     }
 
     /// Opens a scope. Assertions made after this are removed by the matching `pop`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::Solver;
+    ///
+    /// let mut solver = Solver::new();
+    /// let base = solver.arena_mut().constant(true);
+    /// solver.assert(base);
+    /// solver.push();
+    /// let extra = solver.arena_mut().constant(false);
+    /// solver.assert(extra);
+    /// assert_eq!(solver.assertions().len(), 2);
+    /// assert!(solver.pop());
+    /// assert_eq!(solver.assertions().len(), 1);
+    /// ```
     pub fn push(&mut self) {
         self.scopes.push(self.assertions.len());
     }
@@ -168,6 +264,18 @@ impl Solver {
     /// Clauses learned while the removed assertions were active stay in the
     /// solver. They are consequences of the formulas that the solver has
     /// already encoded, so they remain valid.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::Solver;
+    ///
+    /// let mut solver = Solver::new();
+    /// // No scope is open, so there is nothing to pop.
+    /// assert!(!solver.pop());
+    /// solver.push();
+    /// assert!(solver.pop());
+    /// ```
     pub fn pop(&mut self) -> bool {
         match self.scopes.pop() {
             Some(n) => {
@@ -183,6 +291,18 @@ impl Solver {
     ///
     /// Returns `Err(Unknown)` if an intermediate value does not fit in `i128`,
     /// or if a [`Budget`] limit is reached.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::{Linear, Rational, Solver, Status};
+    ///
+    /// let mut solver = Solver::new();
+    /// let x = solver.declare("x");
+    /// let f = solver.arena_mut().ge(&Linear::var(x), &Linear::constant(Rational::ONE)).unwrap();
+    /// solver.assert(f);
+    /// assert_eq!(solver.check(), Ok(Status::Sat));
+    /// ```
     pub fn check(&mut self) -> Result<Status, Unknown> {
         let roots = self.assertions.clone();
         self.decide(&roots)
@@ -194,6 +314,23 @@ impl Solver {
     /// The result holds indices into the current assertion list, in increasing
     /// order. It is minimal: removing any one of them makes the rest
     /// satisfiable. This takes one solver call per assertion.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::{Linear, Rational, Solver};
+    ///
+    /// let mut solver = Solver::new();
+    /// let x = solver.declare("x");
+    /// let t = solver.arena_mut().constant(true);
+    /// let lo = solver.arena_mut().ge(&Linear::var(x), &Linear::constant(Rational::ONE)).unwrap();
+    /// let hi = solver.arena_mut().le(&Linear::var(x), &Linear::constant(Rational::ZERO)).unwrap();
+    /// for f in [t, lo, hi] {
+    ///     solver.assert(f);
+    /// }
+    /// // The `true` assertion is not needed, so the core is the two bounds.
+    /// assert_eq!(solver.unsat_core(), Ok(Some(vec![1, 2])));
+    /// ```
     pub fn unsat_core(&mut self) -> Result<Option<Vec<usize>>, Unknown> {
         let all = self.assertions.clone();
         if self.decide(&all)? == Status::Sat {
@@ -229,6 +366,21 @@ impl Solver {
     /// Returns `Ok(None)` when the assertions are satisfiable, and also when
     /// they contain `or`, `not` over a compound formula, or `false`. Such
     /// problems need the full search, and this method does not prove them.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::{Linear, Rational, Solver};
+    ///
+    /// let mut solver = Solver::new();
+    /// let x = solver.declare("x");
+    /// let lo = solver.arena_mut().ge(&Linear::var(x), &Linear::constant(Rational::ONE)).unwrap();
+    /// let hi = solver.arena_mut().le(&Linear::var(x), &Linear::constant(Rational::ZERO)).unwrap();
+    /// solver.assert(lo);
+    /// solver.assert(hi);
+    /// let cert = solver.unsat_certificate().unwrap().unwrap();
+    /// assert!(solver.check_certificate(&cert));
+    /// ```
     pub fn unsat_certificate(&mut self) -> Result<Option<Farkas>, Unknown> {
         let Some(lits) = literals(&self.arena, &self.assertions) else {
             return Ok(None);
@@ -251,6 +403,21 @@ impl Solver {
     /// Returns `Ok(None)` when the assertions are satisfiable. Returns
     /// `Err(Unknown)` when a budget is reached, or when the proof does not pass
     /// its own check. An `Unknown` never comes with a proof.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::{Linear, Rational, Solver, check_proof};
+    ///
+    /// let mut solver = Solver::new();
+    /// let x = solver.declare("x");
+    /// let lo = solver.arena_mut().ge(&Linear::var(x), &Linear::constant(Rational::ONE)).unwrap();
+    /// let hi = solver.arena_mut().le(&Linear::var(x), &Linear::constant(Rational::ZERO)).unwrap();
+    /// solver.assert(lo);
+    /// solver.assert(hi);
+    /// let proof = solver.unsat_proof().unwrap().unwrap();
+    /// assert!(check_proof(solver.arena(), solver.assertions(), &proof));
+    /// ```
     pub fn unsat_proof(&mut self) -> Result<Option<Proof>, Unknown> {
         let Some(proof) = crate::proof::produce(&self.arena, &self.assertions, &self.budget)?
         else {
@@ -265,6 +432,21 @@ impl Solver {
     }
 
     /// Checks `cert` against the current assertions, with [`check_farkas`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::{Linear, Rational, Solver};
+    ///
+    /// let mut solver = Solver::new();
+    /// let x = solver.declare("x");
+    /// let lo = solver.arena_mut().ge(&Linear::var(x), &Linear::constant(Rational::ONE)).unwrap();
+    /// let hi = solver.arena_mut().le(&Linear::var(x), &Linear::constant(Rational::ZERO)).unwrap();
+    /// solver.assert(lo);
+    /// solver.assert(hi);
+    /// let cert = solver.unsat_certificate().unwrap().unwrap();
+    /// assert!(solver.check_certificate(&cert));
+    /// ```
     pub fn check_certificate(&self, cert: &Farkas) -> bool {
         check_farkas(&self.arena, &self.assertions, cert)
     }
@@ -280,6 +462,19 @@ impl Solver {
     /// The value of `v` in the model found by the last successful [`Solver::check`].
     ///
     /// Returns `None` if the last check was not `Sat`, or if assertions changed since then.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::{Linear, Rational, Solver, Status};
+    ///
+    /// let mut solver = Solver::new();
+    /// let x = solver.declare("x");
+    /// let f = solver.arena_mut().ge(&Linear::var(x), &Linear::constant(Rational::ONE)).unwrap();
+    /// solver.assert(f);
+    /// assert_eq!(solver.check(), Ok(Status::Sat));
+    /// assert!(solver.value(x).unwrap() >= Rational::ONE);
+    /// ```
     pub fn value(&self, v: Var) -> Option<Rational> {
         self.model.as_ref().and_then(|m| m.get(v.index()).copied())
     }
@@ -292,12 +487,38 @@ impl<const VARS: usize, const NODES: usize, const TERMS: usize, const KIDS: usiz
     ///
     /// The formulas are stored inline, so the arena allocates nothing. The
     /// search itself uses `alloc` for its working state.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::{Budget, FixedArena, Rational, Status};
+    ///
+    /// let mut arena: FixedArena<1, 4, 4, 4> = FixedArena::new();
+    /// let x = arena.declare("x").unwrap();
+    /// let lo = arena.atom(&[(x, Rational::from_int(-1))], Rational::from_int(-2), false).unwrap();
+    /// let hi = arena.atom(&[(x, Rational::ONE)], Rational::ONE, false).unwrap();
+    /// // x >= 2 and x <= 1 cannot both hold.
+    /// assert_eq!(arena.check(&[lo, hi], &Budget::UNLIMITED), Ok(Status::Unsat));
+    /// ```
     pub fn check(&self, assertions: &[Formula], budget: &Budget) -> Result<Status, Unknown> {
         Core::new().check(self, assertions, budget).map(|(s, _)| s)
     }
 
     /// Like [`FixedArena::check`]. On `Sat`, writes the value of each variable
     /// (by index) into `out`, up to its length.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::{Budget, FixedArena, Rational, Status};
+    ///
+    /// let mut arena: FixedArena<1, 4, 4, 4> = FixedArena::new();
+    /// let x = arena.declare("x").unwrap();
+    /// let lo = arena.atom(&[(x, Rational::from_int(-1))], Rational::from_int(-2), false).unwrap();
+    /// let mut out = [Rational::ZERO; 1];
+    /// assert_eq!(arena.check_model(&[lo], &Budget::UNLIMITED, &mut out), Ok(Status::Sat));
+    /// assert!(out[0] >= Rational::from_int(2));
+    /// ```
     pub fn check_model(
         &self,
         assertions: &[Formula],
@@ -652,11 +873,30 @@ pub struct Farkas {
 impl Farkas {
     /// Builds a certificate from `(literal index, coefficient)` pairs. It
     /// is not checked until [`check_farkas`] is called.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::{Farkas, Rational};
+    ///
+    /// let cert = Farkas::new(vec![(0, Rational::ONE)]);
+    /// assert_eq!(cert.coefficients(), &[(0, Rational::ONE)]);
+    /// ```
     pub fn new(coefficients: Vec<(usize, Rational)>) -> Self {
         Self { coefficients }
     }
 
     /// The `(literal index, coefficient)` pairs.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_solver::{Farkas, Rational};
+    ///
+    /// let cert = Farkas::new(vec![(0, Rational::ONE), (2, Rational::from_int(3))]);
+    /// assert_eq!(cert.coefficients().len(), 2);
+    /// assert_eq!(cert.coefficients()[1].0, 2);
+    /// ```
     pub fn coefficients(&self) -> &[(usize, Rational)] {
         &self.coefficients
     }
