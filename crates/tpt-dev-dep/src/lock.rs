@@ -31,6 +31,16 @@ impl Scope {
     };
 
     /// Returns `true` if edges of `kind` are followed.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_dep::{DepKind, Scope};
+    ///
+    /// assert!(Scope::default().includes(DepKind::Normal));
+    /// assert!(!Scope::default().includes(DepKind::Dev));
+    /// assert!(Scope::ALL.includes(DepKind::Build));
+    /// ```
     pub fn includes(self, kind: DepKind) -> bool {
         match kind {
             DepKind::Normal => true,
@@ -54,6 +64,16 @@ pub struct Dependency {
 
 impl Dependency {
     /// A normal, non-optional edge to `target`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_dep::Dependency;
+    ///
+    /// let dep = Dependency::normal("serde");
+    /// assert_eq!(dep.target, "serde");
+    /// assert!(!dep.optional);
+    /// ```
     pub fn normal(target: impl Into<String>) -> Self {
         Dependency {
             target: target.into(),
@@ -88,6 +108,24 @@ impl Graph {
     /// Index of the package matching a dependency target.
     ///
     /// A target is either `name` (when only one version exists) or `name version`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_dep::{Graph, Package};
+    ///
+    /// let graph = Graph {
+    ///     packages: vec![Package {
+    ///         name: "serde".into(),
+    ///         version: "1.0.0".into(),
+    ///         source: None,
+    ///         dependencies: vec![],
+    ///     }],
+    /// };
+    /// assert_eq!(graph.resolve("serde"), Some(0));
+    /// assert_eq!(graph.resolve("serde 1.0.0"), Some(0));
+    /// assert_eq!(graph.resolve("serde 2.0.0"), None);
+    /// ```
     pub fn resolve(&self, target: &str) -> Option<usize> {
         let mut parts = target.split_whitespace();
         let name = parts.next()?;
@@ -99,6 +137,23 @@ impl Graph {
 
     /// Each package's direct dependencies, as package indices, following only
     /// the edge kinds in `scope`. Unresolvable targets are dropped.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_dep::{Dependency, Graph, Package, Scope};
+    ///
+    /// let pkg = |name: &str, deps: Vec<Dependency>| Package {
+    ///     name: name.into(),
+    ///     version: "1.0.0".into(),
+    ///     source: None,
+    ///     dependencies: deps,
+    /// };
+    /// let graph = Graph {
+    ///     packages: vec![pkg("app", vec![Dependency::normal("lib")]), pkg("lib", vec![])],
+    /// };
+    /// assert_eq!(graph.edges(Scope::default()), vec![vec![1], vec![]]);
+    /// ```
     pub fn edges(&self, scope: Scope) -> Vec<Vec<usize>> {
         self.packages
             .iter()

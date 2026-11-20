@@ -5,21 +5,24 @@
 //! ```text
 //! tpt-dev-dep <Cargo.lock> [licenses.txt] [--allow ID]...
 //! tpt-dev-dep --metadata <metadata.json> [licenses.txt] [--allow ID]...
-//!             [--include-dev] [--include-build]
+//!             [--include-dev] [--include-build] [--json]
 //! ```
 //!
-//! `licenses.txt` has one `name license-expression` pair per line. The exit
+//! With `--metadata` and no `licenses.txt`, licenses come from each package's
+//! `license` field. `--json` prints the report as one JSON object. The exit
 //! status is 1 if there is a cycle or a license violation, and 2 on a usage error.
 //! Dev and build edges come only from `--metadata`, and are followed only with
 //! `--include-dev` or `--include-build`.
 
 use std::process::ExitCode;
 
-use tpt_dev_dep::{Graph, Policy, Scope, analyse, parse_lock, parse_metadata};
+use tpt_dev_dep::{
+    Graph, Policy, Scope, analyse, parse_lock, parse_metadata, parse_metadata_licenses,
+};
 
 const USAGE: &str = "usage: tpt-dev-dep <Cargo.lock> [licenses.txt] [--allow ID]...\n       \
                      tpt-dev-dep --metadata <metadata.json> [licenses.txt] [--allow ID]... \
-                     [--include-dev] [--include-build]";
+                     [--include-dev] [--include-build] [--json]";
 
 /// What the command line asked for.
 #[derive(Default)]
@@ -29,6 +32,7 @@ struct Args {
     licenses_path: Option<String>,
     allow: Vec<String>,
     scope: Scope,
+    json: bool,
 }
 
 fn main() -> ExitCode {
@@ -41,28 +45,104 @@ fn main() -> ExitCode {
         Ok(g) => g,
         Err(code) => return code,
     };
-    let licenses = match read_licenses(args.licenses_path.as_deref()) {
-        Ok(l) => l,
-        Err(code) => return code,
+    let licenses = match (&args.licenses_path, &args.metadata_path) {
+        // With --metadata and no licenses.txt, take the licenses from cargo metadata.
+        (None, Some(path)) => match read_file(path).and_then(|text| {
+            parse_metadata_licenses(&text).map_err(|e| {
+                eprintln!("{path}: {e}");
+                ExitCode::from(2)
+            })
+        }) {
+            Ok(l) => l,
+            Err(code) => return code,
+        },
+        _ => match read_licenses(args.licenses_path.as_deref()) {
+            Ok(l) => l,
+            Err(code) => return code,
+        },
     };
 
     let report = analyse(&graph, &licenses, &Policy { allow: args.allow }, args.scope);
-    for cycle in &report.cycles {
-        println!("cycle: {}", cycle.join(" -> "));
-    }
-    for (name, license) in &report.license_violations {
-        println!("license: {name} is {license}");
-    }
-    println!("largest transitive trees:");
-    for (name, count) in report.transitive.iter().take(5) {
-        println!("  {name}: {count}");
+    if args.json {
+        println!("{}", report_json(&graph, &report));
+    } else {
+        for cycle in &report.cycles {
+            println!("cycle: {}", cycle.join(" -> "));
+        }
+        for (name, license) in &report.license_violations {
+            println!("license: {name} is {license}");
+        }
+        println!("largest transitive trees:");
+        for (name, count) in report.transitive.iter().take(5) {
+            println!("  {name}: {count}");
+        }
+        if report.is_clean() {
+            println!("ok: {} packages", graph.packages.len());
+        }
     }
     if report.is_clean() {
-        println!("ok: {} packages", graph.packages.len());
         ExitCode::SUCCESS
     } else {
         ExitCode::from(1)
     }
+}
+
+/// Renders the report as one JSON object. Every package appears in
+/// `transitive`, largest first, so tools can pick their own threshold.
+fn report_json(graph: &Graph, report: &tpt_dev_dep::Report) -> String {
+    let cycles: Vec<String> = report
+        .cycles
+        .iter()
+        .map(|c| {
+            format!(
+                "[{}]",
+                c.iter().map(|n| json_str(n)).collect::<Vec<_>>().join(",")
+            )
+        })
+        .collect();
+    let violations: Vec<String> = report
+        .license_violations
+        .iter()
+        .map(|(name, license)| {
+            format!(
+                "{{\"name\":{},\"license\":{}}}",
+                json_str(name),
+                json_str(license)
+            )
+        })
+        .collect();
+    let transitive: Vec<String> = report
+        .transitive
+        .iter()
+        .map(|(name, count)| format!("{{\"name\":{},\"count\":{count}}}", json_str(name)))
+        .collect();
+    format!(
+        "{{\"ok\":{},\"packages\":{},\"cycles\":[{}],\"license_violations\":[{}],\"transitive\":[{}]}}",
+        report.is_clean(),
+        graph.packages.len(),
+        cycles.join(","),
+        violations.join(","),
+        transitive.join(","),
+    )
+}
+
+/// A JSON string literal, with the escapes JSON requires.
+fn json_str(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 2);
+    out.push('"');
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 fn parse_args(raw: impl Iterator<Item = String>) -> Result<Args, String> {
@@ -81,6 +161,7 @@ fn parse_args(raw: impl Iterator<Item = String>) -> Result<Args, String> {
             },
             "--include-dev" => args.scope.dev = true,
             "--include-build" => args.scope.build = true,
+            "--json" => args.json = true,
             other if other.starts_with("--") => {
                 return Err(format!("unknown option {other}"));
             }
@@ -151,4 +232,15 @@ fn usage(msg: &str) -> ExitCode {
     eprintln!("tpt-dev-dep: {msg}");
     eprintln!("{USAGE}");
     ExitCode::from(2)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::json_str;
+
+    #[test]
+    fn json_strings_are_escaped() {
+        assert_eq!(json_str("a\"b\\c"), "\"a\\\"b\\\\c\"");
+        assert_eq!(json_str("line\nbreak\u{1}"), "\"line\\nbreak\\u0001\"");
+    }
 }

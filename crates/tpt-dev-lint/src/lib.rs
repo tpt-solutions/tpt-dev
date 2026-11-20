@@ -30,6 +30,15 @@ pub enum Severity {
 
 impl Severity {
     /// Parses `allow`, `warn` or `deny`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_lint::Severity;
+    ///
+    /// assert_eq!(Severity::parse("deny"), Some(Severity::Deny));
+    /// assert_eq!(Severity::parse("error"), None);
+    /// ```
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "allow" => Some(Severity::Allow),
@@ -98,12 +107,36 @@ pub struct Linter {
 
 impl Linter {
     /// A linter with the given rules, each at its default severity.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_lint::{Linter, default_rules};
+    ///
+    /// let linter = Linter::new(default_rules());
+    /// let source = "fn f() { let x: Option<u8> = None; x.unwrap(); }";
+    /// assert_eq!(linter.lint_source(source).unwrap().len(), 1);
+    /// ```
     pub fn new(rules: Vec<(Box<dyn Rule>, Severity)>) -> Self {
         Self { rules }
     }
 
     /// Applies a config: every rule named there gets its configured severity.
     /// Rules not named keep their default. Names that match no rule are an error.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_lint::{Config, Linter, default_rules};
+    ///
+    /// let mut linter = Linter::new(default_rules());
+    /// linter.configure(&Config::parse("no-unwrap = allow\n").unwrap()).unwrap();
+    /// let source = "fn f() { let x: Option<u8> = None; x.unwrap(); }";
+    /// assert!(linter.lint_source(source).unwrap().is_empty());
+    ///
+    /// // A rule name that does not exist is an error.
+    /// assert!(linter.configure(&Config::parse("no-such-rule = deny\n").unwrap()).is_err());
+    /// ```
     pub fn configure(&mut self, config: &Config) -> Result<(), ConfigError> {
         for (name, sev) in config.entries() {
             match self.rules.iter_mut().find(|(r, _)| r.name() == name) {
@@ -115,6 +148,17 @@ impl Linter {
     }
 
     /// Lints one source file. Returns the diagnostics, in source order.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_lint::{Linter, default_rules};
+    ///
+    /// let linter = Linter::new(default_rules());
+    /// let diagnostics = linter.lint_source("fn f() { todo!() }").unwrap();
+    /// assert_eq!(diagnostics[0].rule, "no-todo-macros");
+    /// assert!(linter.lint_source("fn f( {").is_err());
+    /// ```
     pub fn lint_source(&self, source: &str) -> Result<Vec<Diagnostic>, String> {
         let file = syn::parse_file(source).map_err(|e| format!("cannot parse: {e}"))?;
         let mut out = Vec::new();
@@ -138,6 +182,17 @@ impl Linter {
 }
 
 /// Whether any diagnostic is at `Deny` severity.
+///
+/// # Examples
+///
+/// ```
+/// use tpt_dev_lint::{Config, Linter, default_rules, has_errors};
+///
+/// let mut linter = Linter::new(default_rules());
+/// linter.configure(&Config::parse("no-unwrap = deny\n").unwrap()).unwrap();
+/// let diagnostics = linter.lint_source("fn f() { None::<u8>.unwrap(); }").unwrap();
+/// assert!(has_errors(&diagnostics));
+/// ```
 pub fn has_errors(diagnostics: &[Diagnostic]) -> bool {
     diagnostics.iter().any(|d| d.severity == Severity::Deny)
 }

@@ -8,6 +8,7 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 readme = "README.md"
+keywords = ["dependencies", "cargo", "license", "cycles", "audit"]
 categories = ["development-tools"]
 
 # A host tool: it reads files, so it is std and excluded from the bare-metal build.

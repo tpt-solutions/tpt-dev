@@ -51,6 +51,33 @@ pub fn parse_metadata(text: &str) -> Result<Graph, String> {
     }
 }
 
+/// Reads each package's `license` field from `cargo metadata --format-version 1`
+/// output, as `(name, license-expression)` pairs.
+///
+/// A package with a null license is left out, so the license check reports it
+/// as missing. Use the result as the license list when no `licenses.txt` is given.
+///
+/// ```
+/// use tpt_dev_dep::parse_metadata_licenses;
+///
+/// let text = r#"{"packages": [
+///   {"name": "app", "license": "MIT OR Apache-2.0"},
+///   {"name": "bare", "license": null}
+/// ]}"#;
+/// let pairs = parse_metadata_licenses(text).unwrap();
+/// assert_eq!(pairs, vec![(String::from("app"), String::from("MIT OR Apache-2.0"))]);
+/// ```
+pub fn parse_metadata_licenses(text: &str) -> Result<Vec<(String, String)>, String> {
+    let root = json::parse(text).map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for pkg in field_array(&root, "packages")? {
+        if let Some(license) = field_opt_str(pkg, "license")? {
+            out.push((field_str(pkg, "name")?.to_string(), license));
+        }
+    }
+    Ok(out)
+}
+
 /// A dependency as declared in a package's manifest.
 struct Declared {
     name: String,

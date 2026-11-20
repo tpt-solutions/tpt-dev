@@ -8,6 +8,7 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 readme = "README.md"
+keywords = ["lint", "linter", "syn", "static-analysis"]
 categories = ["development-tools"]
 
 # A host tool: it reads and parses source files, so it is std and excluded from the bare-metal build.

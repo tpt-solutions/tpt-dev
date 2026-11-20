@@ -30,6 +30,16 @@ pub enum Value {
 
 impl Value {
     /// The value of `key`, if this is an object. With duplicate keys, the first.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_dep::parse_json;
+    ///
+    /// let v = parse_json(r#"{"name": "tpt"}"#).unwrap();
+    /// assert_eq!(v.get("name").and_then(|n| n.as_str()), Some("tpt"));
+    /// assert!(v.get("missing").is_none());
+    /// ```
     pub fn get(&self, key: &str) -> Option<&Value> {
         match self {
             Value::Object(pairs) => pairs.iter().find(|(k, _)| k == key).map(|(_, v)| v),
@@ -38,6 +48,16 @@ impl Value {
     }
 
     /// The string, if this is a string.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_dep::parse_json;
+    ///
+    /// let v = parse_json(r#""hello""#).unwrap();
+    /// assert_eq!(v.as_str(), Some("hello"));
+    /// assert_eq!(parse_json("1").unwrap().as_str(), None);
+    /// ```
     pub fn as_str(&self) -> Option<&str> {
         match self {
             Value::String(s) => Some(s),
@@ -46,6 +66,15 @@ impl Value {
     }
 
     /// The elements, if this is an array.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_dep::parse_json;
+    ///
+    /// let v = parse_json("[1, 2, 3]").unwrap();
+    /// assert_eq!(v.as_array().map(|items| items.len()), Some(3));
+    /// ```
     pub fn as_array(&self) -> Option<&[Value]> {
         match self {
             Value::Array(items) => Some(items),
@@ -54,6 +83,15 @@ impl Value {
     }
 
     /// The boolean, if this is `true` or `false`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_dep::parse_json;
+    ///
+    /// assert_eq!(parse_json("true").unwrap().as_bool(), Some(true));
+    /// assert_eq!(parse_json("1").unwrap().as_bool(), None);
+    /// ```
     pub fn as_bool(&self) -> Option<bool> {
         match self {
             Value::Bool(b) => Some(*b),
@@ -62,6 +100,15 @@ impl Value {
     }
 
     /// Returns `true` if this is `null`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_dep::parse_json;
+    ///
+    /// assert!(parse_json("null").unwrap().is_null());
+    /// assert!(!parse_json("0").unwrap().is_null());
+    /// ```
     pub fn is_null(&self) -> bool {
         matches!(self, Value::Null)
     }

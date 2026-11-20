@@ -288,6 +288,16 @@ impl Rule for DocExample {
 }
 
 /// The built-in rules, each at its default severity: the two safety rules deny, and the rest warn.
+///
+/// # Examples
+///
+/// ```
+/// use tpt_dev_lint::{Rule, Severity, default_rules};
+///
+/// let rules = default_rules();
+/// assert_eq!(rules.len(), 4);
+/// assert!(rules.iter().any(|(rule, sev)| rule.name() == "safety-comment" && *sev == Severity::Deny));
+/// ```
 pub fn default_rules() -> Vec<(Box<dyn Rule>, Severity)> {
     vec![
         (Box::new(NoUnwrap), Severity::Warn),

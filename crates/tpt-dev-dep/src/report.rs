@@ -17,6 +17,20 @@ pub struct Report {
 
 impl Report {
     /// Returns `true` if there are no cycles and no license violations.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_dep::Report;
+    ///
+    /// assert!(Report::default().is_clean());
+    ///
+    /// let dirty = Report {
+    ///     cycles: vec![vec!["a".to_string(), "b".to_string()]],
+    ///     ..Default::default()
+    /// };
+    /// assert!(!dirty.is_clean());
+    /// ```
     pub fn is_clean(&self) -> bool {
         self.cycles.is_empty() && self.license_violations.is_empty()
     }

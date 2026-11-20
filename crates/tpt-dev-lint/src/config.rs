@@ -54,6 +54,17 @@ impl fmt::Display for ConfigError {
 
 impl Config {
     /// Parses config text.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_lint::Config;
+    ///
+    /// let config = Config::parse("no-unwrap = deny\n# comments are skipped\ndoc-example = allow\n").unwrap();
+    /// assert_eq!(config.entries().count(), 2);
+    ///
+    /// assert!(Config::parse("no-unwrap deny").is_err());
+    /// ```
     pub fn parse(text: &str) -> Result<Self, ConfigError> {
         let mut entries = Vec::new();
         for (i, raw) in text.lines().enumerate() {
@@ -76,6 +87,16 @@ impl Config {
     }
 
     /// The configured `(rule, severity)` pairs, in file order.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_lint::{Config, Severity};
+    ///
+    /// let config = Config::parse("no-unwrap = deny\nno-todo-macros = warn\n").unwrap();
+    /// let entries: Vec<(&str, Severity)> = config.entries().collect();
+    /// assert_eq!(entries, vec![("no-unwrap", Severity::Deny), ("no-todo-macros", Severity::Warn)]);
+    /// ```
     pub fn entries(&self) -> impl Iterator<Item = (&str, Severity)> + '_ {
         self.entries.iter().map(|(n, s)| (n.as_str(), *s))
     }

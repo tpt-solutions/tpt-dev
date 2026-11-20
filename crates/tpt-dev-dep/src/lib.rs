@@ -14,5 +14,5 @@ mod report;
 pub use json::{JsonError, MAX_DEPTH, Value, parse as parse_json};
 pub use license::{Policy, license_allowed};
 pub use lock::{DepKind, Dependency, Graph, Package, Scope, parse_lock};
-pub use metadata::parse_metadata;
+pub use metadata::{parse_metadata, parse_metadata_licenses};
 pub use report::{Report, analyse};
