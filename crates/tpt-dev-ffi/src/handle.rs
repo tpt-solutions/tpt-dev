@@ -26,11 +26,33 @@ impl<T> Handle<T> {
     /// Wraps a raw pointer, or returns `None` for null.
     ///
     /// The caller guarantees that a non-null pointer refers to a live object of type `T`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_ffi::Handle;
+    ///
+    /// let mut value = 5u32;
+    /// let handle = Handle::new(&mut value as *mut u32).unwrap();
+    /// assert!(Handle::<u32>::new(core::ptr::null_mut()).is_none());
+    /// let _ = handle;
+    /// ```
     pub fn new(ptr: *mut T) -> Option<Self> {
         NonNull::new(ptr).map(|ptr| Self { ptr })
     }
 
     /// The raw pointer, to pass to C.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_ffi::Handle;
+    ///
+    /// let mut value = 5u32;
+    /// let ptr = &mut value as *mut u32;
+    /// let handle = Handle::new(ptr).unwrap();
+    /// assert_eq!(handle.as_ptr(), ptr);
+    /// ```
     pub const fn as_ptr(&self) -> *mut T {
         self.ptr.as_ptr()
     }

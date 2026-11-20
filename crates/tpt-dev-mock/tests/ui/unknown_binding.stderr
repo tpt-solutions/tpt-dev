@@ -1,0 +1,5 @@
+error: `Value` is not an associated type of this trait
+ --> tests/ui/unknown_binding.rs:3:8
+  |
+3 | #[mock(Value = u8)]
+  |        ^^^^^

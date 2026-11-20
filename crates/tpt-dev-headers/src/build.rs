@@ -107,6 +107,16 @@ fn write_if_changed(path: &Path, contents: &str) -> Result<bool, BuildError> {
 ///
 /// Prints to standard output, which Cargo reads. Call it only from a build
 /// script.
+///
+/// # Examples
+///
+/// ```
+/// use std::path::Path;
+/// use tpt_dev_headers::build::rerun_if_changed;
+///
+/// // Inside a build script, this tells Cargo to rebuild when the API changes.
+/// rerun_if_changed(Path::new("include/api.rs"));
+/// ```
 pub fn rerun_if_changed(path: &Path) {
     std::println!("cargo:rerun-if-changed={}", path.display());
 }

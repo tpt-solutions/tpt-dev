@@ -8,7 +8,8 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 readme = "README.md"
-categories = ["no-std"]
+keywords = ["mocking", "testing", "traits", "test-doubles"]
+categories = ["development-tools::testing", "no-std"]
 
 [features]
 default = []
@@ -19,6 +20,8 @@ tpt-dev-mock-macros = { version = "0.0.0", path = "../tpt-dev-mock-macros" }
 
 [dev-dependencies]
 trybuild = "1"
+# Baseline for the compile-time benchmark in examples/compile_bench.rs.
+mockall = "0.15"
 
 [lints]
 workspace = true

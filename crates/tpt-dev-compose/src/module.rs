@@ -89,6 +89,15 @@ pub enum ImportDesc {
 
 impl ImportDesc {
     /// The kind of export this import must be matched with.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_compose::module::{ExportKind, ImportDesc};
+    ///
+    /// assert_eq!(ImportDesc::Func(0).kind(), ExportKind::Func);
+    /// assert_eq!(ImportDesc::Tag(0).kind(), ExportKind::Tag);
+    /// ```
     pub fn kind(&self) -> ExportKind {
         match self {
             ImportDesc::Func(_) => ExportKind::Func,
@@ -162,30 +171,117 @@ pub struct Module {
     pub start: Option<u32>,
     /// Names of the custom sections, in order.
     pub custom_sections: Vec<String>,
+    /// The body of each function the module defines, in order: its locals
+    /// and its instructions, without the size prefix. They are decoded by
+    /// the runtime, not by this parser.
+    pub code: Vec<Vec<u8>>,
+    /// The initialiser expression of each global the module defines, in order,
+    /// as raw bytes including the final `end`.
+    pub global_inits: Vec<Vec<u8>>,
 }
 
 impl Module {
     /// The number of functions: imported ones, then defined ones.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// const BYTES: &[u8] = &[
+    ///     0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // header
+    ///     0x01, 0x04, 0x01, 0x60, 0x00, 0x00, // type: () -> ()
+    ///     0x03, 0x02, 0x01, 0x00, // function: one, of type 0
+    ///     0x07, 0x07, 0x01, 0x03, 0x72, 0x75, 0x6e, 0x00, 0x00, // export "run" = func 0
+    ///     0x0a, 0x04, 0x01, 0x02, 0x00, 0x0b, // code: one empty body
+    /// ];
+    /// use tpt_dev_compose::parse;
+    ///
+    /// let module = parse(BYTES).unwrap();
+    /// assert_eq!(module.func_count(), 1);
+    /// ```
     pub fn func_count(&self) -> usize {
         self.func_imports().count() + self.functions.len()
     }
 
     /// The number of entries in the table index space.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// const BYTES: &[u8] = &[
+    ///     0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // header
+    ///     0x01, 0x04, 0x01, 0x60, 0x00, 0x00, // type: () -> ()
+    ///     0x03, 0x02, 0x01, 0x00, // function: one, of type 0
+    ///     0x07, 0x07, 0x01, 0x03, 0x72, 0x75, 0x6e, 0x00, 0x00, // export "run" = func 0
+    ///     0x0a, 0x04, 0x01, 0x02, 0x00, 0x0b, // code: one empty body
+    /// ];
+    /// use tpt_dev_compose::parse;
+    ///
+    /// let module = parse(BYTES).unwrap();
+    /// assert_eq!(module.table_count(), 0);
+    /// ```
     pub fn table_count(&self) -> usize {
         self.import_descs(ExportKind::Table).count() + self.tables.len()
     }
 
     /// The number of entries in the memory index space.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// const BYTES: &[u8] = &[
+    ///     0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // header
+    ///     0x01, 0x04, 0x01, 0x60, 0x00, 0x00, // type: () -> ()
+    ///     0x03, 0x02, 0x01, 0x00, // function: one, of type 0
+    ///     0x07, 0x07, 0x01, 0x03, 0x72, 0x75, 0x6e, 0x00, 0x00, // export "run" = func 0
+    ///     0x0a, 0x04, 0x01, 0x02, 0x00, 0x0b, // code: one empty body
+    /// ];
+    /// use tpt_dev_compose::parse;
+    ///
+    /// let module = parse(BYTES).unwrap();
+    /// assert_eq!(module.memory_count(), 0);
+    /// ```
     pub fn memory_count(&self) -> usize {
         self.import_descs(ExportKind::Memory).count() + self.memories.len()
     }
 
     /// The number of entries in the global index space.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// const BYTES: &[u8] = &[
+    ///     0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // header
+    ///     0x01, 0x04, 0x01, 0x60, 0x00, 0x00, // type: () -> ()
+    ///     0x03, 0x02, 0x01, 0x00, // function: one, of type 0
+    ///     0x07, 0x07, 0x01, 0x03, 0x72, 0x75, 0x6e, 0x00, 0x00, // export "run" = func 0
+    ///     0x0a, 0x04, 0x01, 0x02, 0x00, 0x0b, // code: one empty body
+    /// ];
+    /// use tpt_dev_compose::parse;
+    ///
+    /// let module = parse(BYTES).unwrap();
+    /// assert_eq!(module.global_count(), 0);
+    /// ```
     pub fn global_count(&self) -> usize {
         self.import_descs(ExportKind::Global).count() + self.globals.len()
     }
 
     /// The number of entries in the tag index space.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// const BYTES: &[u8] = &[
+    ///     0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // header
+    ///     0x01, 0x04, 0x01, 0x60, 0x00, 0x00, // type: () -> ()
+    ///     0x03, 0x02, 0x01, 0x00, // function: one, of type 0
+    ///     0x07, 0x07, 0x01, 0x03, 0x72, 0x75, 0x6e, 0x00, 0x00, // export "run" = func 0
+    ///     0x0a, 0x04, 0x01, 0x02, 0x00, 0x0b, // code: one empty body
+    /// ];
+    /// use tpt_dev_compose::parse;
+    ///
+    /// let module = parse(BYTES).unwrap();
+    /// assert_eq!(module.tag_count(), 0);
+    /// ```
     pub fn tag_count(&self) -> usize {
         self.import_descs(ExportKind::Tag).count()
     }
@@ -205,6 +301,25 @@ impl Module {
     }
 
     /// The signature of function `index`, in the function index space.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// const BYTES: &[u8] = &[
+    ///     0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // header
+    ///     0x01, 0x04, 0x01, 0x60, 0x00, 0x00, // type: () -> ()
+    ///     0x03, 0x02, 0x01, 0x00, // function: one, of type 0
+    ///     0x07, 0x07, 0x01, 0x03, 0x72, 0x75, 0x6e, 0x00, 0x00, // export "run" = func 0
+    ///     0x0a, 0x04, 0x01, 0x02, 0x00, 0x0b, // code: one empty body
+    /// ];
+    /// use tpt_dev_compose::parse;
+    ///
+    /// let module = parse(BYTES).unwrap();
+    /// let ty = module.func_type(0).unwrap();
+    /// assert!(ty.params.is_empty());
+    /// assert!(ty.results.is_empty());
+    /// assert!(module.func_type(1).is_none());
+    /// ```
     pub fn func_type(&self, index: u32) -> Option<&FuncType> {
         let index = index as usize;
         let imported: Vec<u32> = self.func_imports().collect();
@@ -217,6 +332,23 @@ impl Module {
     }
 
     /// The type of table `index`, in the table index space.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// const BYTES: &[u8] = &[
+    ///     0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // header
+    ///     0x01, 0x04, 0x01, 0x60, 0x00, 0x00, // type: () -> ()
+    ///     0x03, 0x02, 0x01, 0x00, // function: one, of type 0
+    ///     0x07, 0x07, 0x01, 0x03, 0x72, 0x75, 0x6e, 0x00, 0x00, // export "run" = func 0
+    ///     0x0a, 0x04, 0x01, 0x02, 0x00, 0x0b, // code: one empty body
+    /// ];
+    /// use tpt_dev_compose::parse;
+    ///
+    /// let module = parse(BYTES).unwrap();
+    /// // The module defines no table.
+    /// assert!(module.table_type(0).is_none());
+    /// ```
     pub fn table_type(&self, index: u32) -> Option<TableType> {
         let index = index as usize;
         let imported = self.import_descs(ExportKind::Table).count();
@@ -233,6 +365,22 @@ impl Module {
     }
 
     /// The limits of memory `index`, in the memory index space.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// const BYTES: &[u8] = &[
+    ///     0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // header
+    ///     0x01, 0x04, 0x01, 0x60, 0x00, 0x00, // type: () -> ()
+    ///     0x03, 0x02, 0x01, 0x00, // function: one, of type 0
+    ///     0x07, 0x07, 0x01, 0x03, 0x72, 0x75, 0x6e, 0x00, 0x00, // export "run" = func 0
+    ///     0x0a, 0x04, 0x01, 0x02, 0x00, 0x0b, // code: one empty body
+    /// ];
+    /// use tpt_dev_compose::parse;
+    ///
+    /// let module = parse(BYTES).unwrap();
+    /// assert!(module.memory_type(0).is_none());
+    /// ```
     pub fn memory_type(&self, index: u32) -> Option<Limits> {
         let index = index as usize;
         let imported = self.import_descs(ExportKind::Memory).count();
@@ -249,6 +397,22 @@ impl Module {
     }
 
     /// The type of global `index`, in the global index space.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// const BYTES: &[u8] = &[
+    ///     0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // header
+    ///     0x01, 0x04, 0x01, 0x60, 0x00, 0x00, // type: () -> ()
+    ///     0x03, 0x02, 0x01, 0x00, // function: one, of type 0
+    ///     0x07, 0x07, 0x01, 0x03, 0x72, 0x75, 0x6e, 0x00, 0x00, // export "run" = func 0
+    ///     0x0a, 0x04, 0x01, 0x02, 0x00, 0x0b, // code: one empty body
+    /// ];
+    /// use tpt_dev_compose::parse;
+    ///
+    /// let module = parse(BYTES).unwrap();
+    /// assert!(module.global_type(0).is_none());
+    /// ```
     pub fn global_type(&self, index: u32) -> Option<GlobalType> {
         let index = index as usize;
         let imported = self.import_descs(ExportKind::Global).count();
@@ -265,6 +429,22 @@ impl Module {
     }
 
     /// The function type index of tag `index`, in the tag index space.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// const BYTES: &[u8] = &[
+    ///     0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // header
+    ///     0x01, 0x04, 0x01, 0x60, 0x00, 0x00, // type: () -> ()
+    ///     0x03, 0x02, 0x01, 0x00, // function: one, of type 0
+    ///     0x07, 0x07, 0x01, 0x03, 0x72, 0x75, 0x6e, 0x00, 0x00, // export "run" = func 0
+    ///     0x0a, 0x04, 0x01, 0x02, 0x00, 0x0b, // code: one empty body
+    /// ];
+    /// use tpt_dev_compose::parse;
+    ///
+    /// let module = parse(BYTES).unwrap();
+    /// assert!(module.tag_type(0).is_none());
+    /// ```
     pub fn tag_type(&self, index: u32) -> Option<u32> {
         self.import_descs(ExportKind::Tag)
             .nth(index as usize)
@@ -651,6 +831,26 @@ fn rank(id: u8) -> Option<u8> {
 }
 
 /// Parses a core module from its binary form.
+///
+/// # Examples
+///
+/// ```
+/// const BYTES: &[u8] = &[
+///     0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // header
+///     0x01, 0x04, 0x01, 0x60, 0x00, 0x00, // type: () -> ()
+///     0x03, 0x02, 0x01, 0x00, // function: one, of type 0
+///     0x07, 0x07, 0x01, 0x03, 0x72, 0x75, 0x6e, 0x00, 0x00, // export "run" = func 0
+///     0x0a, 0x04, 0x01, 0x02, 0x00, 0x0b, // code: one empty body
+/// ];
+/// use tpt_dev_compose::module::ExportKind;
+/// use tpt_dev_compose::parse;
+///
+/// let module = parse(BYTES).unwrap();
+/// assert_eq!(module.exports[0].name, "run");
+/// assert_eq!(module.exports[0].kind, ExportKind::Func);
+/// // Bytes that are not a module are refused.
+/// assert!(parse(b"not wasm").is_err());
+/// ```
 pub fn parse(bytes: &[u8]) -> Result<Module, ParseError> {
     let mut r = Reader::new(bytes, 0);
     let magic = bytes.get(0..4).ok_or(ParseError {
@@ -755,7 +955,9 @@ pub fn parse(bytes: &[u8]) -> Result<Module, ParseError> {
                 let n = s.count()?;
                 for _ in 0..n {
                     let ty = s.global_type()?;
+                    let start = s.pos;
                     s.skip_const_expr()?;
+                    module.global_inits.push(s.bytes[start..s.pos].to_vec());
                     module.globals.push(ty);
                 }
             }
@@ -784,7 +986,7 @@ pub fn parse(bytes: &[u8]) -> Result<Module, ParseError> {
                 code_count = Some(n);
                 for _ in 0..n {
                     let len = s.u32()? as usize;
-                    s.take(len)?;
+                    module.code.push(s.take(len)?.to_vec());
                 }
             }
             // Table, memory, global, element, data and data count sections are

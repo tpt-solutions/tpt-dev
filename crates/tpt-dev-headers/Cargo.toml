@@ -8,7 +8,8 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 readme = "README.md"
-categories = ["development-tools::ffi"]
+keywords = ["cbindgen", "c-header", "doxygen", "codegen"]
+categories = ["development-tools::ffi", "development-tools::build-utils", "command-line-utilities"]
 
 # A host tool: it parses Rust source with syn, which needs std. CI builds it for the host only.
 

@@ -47,6 +47,24 @@ pub struct Injection {
 /// Pass the crate's directory, such as `target/doc/my_crate`, and a marker such
 /// as `</body>`. A page that already contains `fragment` is not changed again,
 /// so the call can be repeated. Other files are not read.
+///
+/// # Examples
+///
+/// ```
+/// # #[cfg(feature = "std")]
+/// # fn main() {
+/// use tpt_dev_doc::site::inject_into_rustdoc;
+///
+/// let dir = std::env::temp_dir().join("tpt-dev-doc-inject-example");
+/// std::fs::create_dir_all(&dir).unwrap();
+/// std::fs::write(dir.join("index.html"), "<html><body>hi</body></html>").unwrap();
+/// let report = inject_into_rustdoc(&dir, "</body>", "<p>x</p>").unwrap();
+/// assert_eq!(report.injected.len(), 1);
+/// std::fs::remove_dir_all(&dir).unwrap();
+/// # }
+/// # #[cfg(not(feature = "std"))]
+/// # fn main() {}
+/// ```
 pub fn inject_into_rustdoc(doc_dir: &Path, marker: &str, fragment: &str) -> io::Result<Injection> {
     let mut report = Injection::default();
     let mut pending = vec![doc_dir.to_path_buf()];
@@ -78,6 +96,22 @@ pub fn inject_into_rustdoc(doc_dir: &Path, marker: &str, fragment: &str) -> io::
 /// `file_name` must be a plain `.html` name with no directory part. The
 /// directory is created if needed. The page is the one [`page`] returns, so it
 /// has no script and no network reference.
+///
+/// # Examples
+///
+/// ```
+/// # #[cfg(feature = "std")]
+/// # fn main() {
+/// use tpt_dev_doc::site::write_examples_page;
+///
+/// let dir = std::env::temp_dir().join("tpt-dev-doc-page-example");
+/// let path = write_examples_page(&dir, "examples.html", "Examples", &[]).unwrap();
+/// assert!(path.ends_with("examples.html"));
+/// std::fs::remove_dir_all(&dir).unwrap();
+/// # }
+/// # #[cfg(not(feature = "std"))]
+/// # fn main() {}
+/// ```
 pub fn write_examples_page(
     doc_dir: &Path,
     file_name: &str,
@@ -108,6 +142,22 @@ fn check_plain_html_name(file_name: &str) -> io::Result<()> {
 /// The static examples block that [`run_post_doc_step`] injects into rustdoc
 /// pages. It is a collapsed `<details>` element with the same escaped sections
 /// as [`page`], so it needs no script. Empty when there are no examples.
+///
+/// # Examples
+///
+/// ```
+/// # #[cfg(feature = "std")]
+/// # fn main() {
+/// use tpt_dev_doc::extract;
+/// use tpt_dev_doc::site::examples_fragment;
+///
+/// assert!(examples_fragment(&[]).is_empty());
+/// let examples = extract("```rust\nassert!(true);\n```\n");
+/// assert!(examples_fragment(&examples).contains("<details"));
+/// # }
+/// # #[cfg(not(feature = "std"))]
+/// # fn main() {}
+/// ```
 pub fn examples_fragment(examples: &[Example]) -> String {
     if examples.is_empty() {
         return String::new();
@@ -130,6 +180,20 @@ pub fn examples_fragment(examples: &[Example]) -> String {
 /// code that wires the buttons to it. The page has no other script, no link,
 /// image or frame, and no URL. `wasm_dir` must be a relative directory name.
 /// Writing the `.wasm` files is the job of [`write_repl_page`].
+///
+/// # Examples
+///
+/// ```
+/// # #[cfg(feature = "std")]
+/// # fn main() {
+/// use tpt_dev_doc::site::repl_page;
+///
+/// let html = repl_page("Examples", &[], "examples-wasm");
+/// assert!(html.starts_with("<!doctype html>"));
+/// # }
+/// # #[cfg(not(feature = "std"))]
+/// # fn main() {}
+/// ```
 pub fn repl_page(title: &str, examples: &[Example], wasm_dir: &str) -> String {
     let mut out = String::from(
         "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n\
@@ -197,6 +261,22 @@ pub fn repl_page(title: &str, examples: &[Example], wasm_dir: &str) -> String {
 /// on each run. A compile error stops the step and names the example's line,
 /// and no page is written. This compiles example source with `rustc`, so use
 /// it on trusted documentation only.
+///
+/// # Examples
+///
+/// ```
+/// # #[cfg(feature = "std")]
+/// # fn main() {
+/// use tpt_dev_doc::site::write_repl_page;
+///
+/// let dir = std::env::temp_dir().join("tpt-dev-doc-repl-example");
+/// let path = write_repl_page(&dir, "repl.html", "Examples", &[]).unwrap();
+/// assert!(path.ends_with("repl.html"));
+/// std::fs::remove_dir_all(&dir).unwrap();
+/// # }
+/// # #[cfg(not(feature = "std"))]
+/// # fn main() {}
+/// ```
 pub fn write_repl_page(
     doc_dir: &Path,
     file_name: &str,
@@ -255,6 +335,25 @@ pub struct PostDocReport {
 /// `source` is a Rust file, whose `///` and `//!` comments are read, or a
 /// Markdown file, which is read as it is. The REPL page is written after the
 /// injection, so it does not get the block. Running the step again is safe.
+///
+/// # Examples
+///
+/// ```
+/// # #[cfg(feature = "std")]
+/// # fn main() {
+/// use tpt_dev_doc::site::run_post_doc_step;
+///
+/// let dir = std::env::temp_dir().join("tpt-dev-doc-post-example");
+/// std::fs::create_dir_all(&dir).unwrap();
+/// let source = dir.join("lib.rs");
+/// std::fs::write(&source, "/// Adds one.\npub fn add_one(x: u8) -> u8 { x + 1 }\n").unwrap();
+/// run_post_doc_step(&dir, &source, "Examples").unwrap();
+/// assert!(dir.join("examples-repl.html").exists());
+/// std::fs::remove_dir_all(&dir).unwrap();
+/// # }
+/// # #[cfg(not(feature = "std"))]
+/// # fn main() {}
+/// ```
 pub fn run_post_doc_step(doc_dir: &Path, source: &Path, title: &str) -> io::Result<PostDocReport> {
     let text = fs::read_to_string(source)?;
     let is_markdown = source.extension().is_some_and(|ext| ext == "md");

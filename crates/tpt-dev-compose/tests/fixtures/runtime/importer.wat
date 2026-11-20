@@ -1,0 +1,10 @@
+(module
+  (import "provider" "double" (func $double (param i32) (result i32)))
+  (import "provider" "base" (global $base i32))
+  (global $seen (mut i32) (global.get $base))
+  (func (export "f") (param i32) (result i32)
+    local.get 0 call $double global.get $base i32.add)
+  (func (export "seen") (result i32) global.get $seen)
+  (func $start i32.const 5 global.set $seen)
+  (start $start)
+)

@@ -284,11 +284,32 @@ pub struct EncapsulationKey<P: Parameters> {
 
 impl<P: Parameters> EncapsulationKey<P> {
     /// The encoded length for this parameter set.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_pqc::{EncapsulationKey, MlKem768};
+    ///
+    /// // ML-KEM-768 public keys are 1184 bytes.
+    /// assert_eq!(EncapsulationKey::<MlKem768>::encoded_len(), 1184);
+    /// ```
     pub fn encoded_len() -> usize {
         384 * P::K + 32
     }
 
     /// Parses an encapsulation key, checking its length and its modulus.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_pqc::{EncapsulationKey, MlKem512, keygen_from_seed};
+    ///
+    /// let (ek, _dk) = keygen_from_seed::<MlKem512>(&[1; 32], &[2; 32]);
+    /// let parsed = EncapsulationKey::<MlKem512>::from_bytes(ek.as_bytes()).unwrap();
+    /// assert_eq!(parsed.as_bytes(), ek.as_bytes());
+    /// // A key of the wrong length is refused.
+    /// assert!(EncapsulationKey::<MlKem512>::from_bytes(&[0u8; 10]).is_err());
+    /// ```
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, KemError> {
         if bytes.len() != Self::encoded_len() {
             return Err(KemError::InvalidLength);
@@ -305,6 +326,15 @@ impl<P: Parameters> EncapsulationKey<P> {
     }
 
     /// The encoded key.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_pqc::{EncapsulationKey, MlKem512, keygen_from_seed};
+    ///
+    /// let (ek, _dk) = keygen_from_seed::<MlKem512>(&[1; 32], &[2; 32]);
+    /// assert_eq!(ek.as_bytes().len(), EncapsulationKey::<MlKem512>::encoded_len());
+    /// ```
     pub fn as_bytes(&self) -> &[u8] {
         &self.bytes
     }
@@ -319,11 +349,31 @@ pub struct DecapsulationKey<P: Parameters> {
 
 impl<P: Parameters> DecapsulationKey<P> {
     /// The encoded length for this parameter set.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_pqc::{DecapsulationKey, MlKem512};
+    ///
+    /// // The ML-KEM-512 decapsulation key is 1632 bytes.
+    /// assert_eq!(DecapsulationKey::<MlKem512>::encoded_len(), 1632);
+    /// ```
     pub fn encoded_len() -> usize {
         768 * P::K + 96
     }
 
     /// Parses a decapsulation key, checking only its length.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_pqc::{DecapsulationKey, MlKem512, keygen_from_seed};
+    ///
+    /// let (_ek, dk) = keygen_from_seed::<MlKem512>(&[1; 32], &[2; 32]);
+    /// let parsed = DecapsulationKey::<MlKem512>::from_bytes(dk.as_bytes()).unwrap();
+    /// assert_eq!(parsed.as_bytes(), dk.as_bytes());
+    /// assert!(DecapsulationKey::<MlKem512>::from_bytes(&[0u8; 10]).is_err());
+    /// ```
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, KemError> {
         if bytes.len() != Self::encoded_len() {
             return Err(KemError::InvalidLength);
@@ -335,6 +385,15 @@ impl<P: Parameters> DecapsulationKey<P> {
     }
 
     /// The encoded key. Handle it as a secret.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_pqc::{DecapsulationKey, MlKem512, keygen_from_seed};
+    ///
+    /// let (_ek, dk) = keygen_from_seed::<MlKem512>(&[1; 32], &[2; 32]);
+    /// assert_eq!(dk.as_bytes().len(), DecapsulationKey::<MlKem512>::encoded_len());
+    /// ```
     pub fn as_bytes(&self) -> &[u8] {
         &self.bytes
     }
@@ -355,11 +414,32 @@ pub struct Ciphertext<P: Parameters> {
 
 impl<P: Parameters> Ciphertext<P> {
     /// The encoded length for this parameter set.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_pqc::{Ciphertext, MlKem512};
+    ///
+    /// // ML-KEM-512 ciphertexts are 768 bytes.
+    /// assert_eq!(Ciphertext::<MlKem512>::encoded_len(), 768);
+    /// ```
     pub fn encoded_len() -> usize {
         32 * (P::DU as usize * P::K + P::DV as usize)
     }
 
     /// Parses a ciphertext, checking its length.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_pqc::{Ciphertext, EncapsulationKey, MlKem512, encapsulate_from_seed, keygen_from_seed};
+    ///
+    /// let (ek, _dk) = keygen_from_seed::<MlKem512>(&[1; 32], &[2; 32]);
+    /// let (ct, _ss) = encapsulate_from_seed(&ek, &[3; 32]);
+    /// let parsed = Ciphertext::<MlKem512>::from_bytes(ct.as_bytes()).unwrap();
+    /// assert_eq!(parsed.as_bytes(), ct.as_bytes());
+    /// assert!(Ciphertext::<MlKem512>::from_bytes(&[0u8; 10]).is_err());
+    /// ```
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, KemError> {
         if bytes.len() != Self::encoded_len() {
             return Err(KemError::InvalidLength);
@@ -371,6 +451,16 @@ impl<P: Parameters> Ciphertext<P> {
     }
 
     /// The encoded ciphertext.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_pqc::{Ciphertext, MlKem512, encapsulate_from_seed, keygen_from_seed};
+    ///
+    /// let (ek, _dk) = keygen_from_seed::<MlKem512>(&[1; 32], &[2; 32]);
+    /// let (ct, _ss) = encapsulate_from_seed(&ek, &[3; 32]);
+    /// assert_eq!(ct.as_bytes().len(), Ciphertext::<MlKem512>::encoded_len());
+    /// ```
     pub fn as_bytes(&self) -> &[u8] {
         &self.bytes
     }
@@ -381,6 +471,17 @@ pub struct SharedSecret([u8; SHARED_SECRET_LEN]);
 
 impl SharedSecret {
     /// The 32 bytes of the secret.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_pqc::{MlKem512, SHARED_SECRET_LEN, decapsulate, encapsulate_from_seed, keygen_from_seed};
+    ///
+    /// let (ek, dk) = keygen_from_seed::<MlKem512>(&[1; 32], &[2; 32]);
+    /// let (ct, ss) = encapsulate_from_seed(&ek, &[3; 32]);
+    /// assert_eq!(ss.as_bytes().len(), SHARED_SECRET_LEN);
+    /// assert_eq!(decapsulate(&dk, &ct).as_bytes(), ss.as_bytes());
+    /// ```
     pub fn as_bytes(&self) -> &[u8; SHARED_SECRET_LEN] {
         &self.0
     }
@@ -394,6 +495,18 @@ impl Drop for SharedSecret {
 
 /// ML-KEM.KeyGen from the two 32-byte seeds `d` and `z`. This is the
 /// deterministic core; [`keygen`] draws the seeds from an [`Rng`].
+///
+/// # Examples
+///
+/// ```
+/// use tpt_dev_pqc::{MlKem512, keygen_from_seed};
+///
+/// // The same seeds always give the same keys.
+/// let (ek1, dk1) = keygen_from_seed::<MlKem512>(&[1; 32], &[2; 32]);
+/// let (ek2, dk2) = keygen_from_seed::<MlKem512>(&[1; 32], &[2; 32]);
+/// assert_eq!(ek1.as_bytes(), ek2.as_bytes());
+/// assert_eq!(dk1.as_bytes(), dk2.as_bytes());
+/// ```
 pub fn keygen_from_seed<P: Parameters>(
     d: &[u8; 32],
     z: &[u8; 32],
@@ -419,6 +532,17 @@ pub fn keygen_from_seed<P: Parameters>(
 
 /// ML-KEM.Encaps from the 32-byte message `m`. This is the deterministic core;
 /// [`encapsulate`] draws `m` from an [`Rng`].
+///
+/// # Examples
+///
+/// ```
+/// use tpt_dev_pqc::{MlKem512, decapsulate, encapsulate_from_seed, keygen_from_seed};
+///
+/// let (ek, dk) = keygen_from_seed::<MlKem512>(&[1; 32], &[2; 32]);
+/// // The message is the only randomness, so a fixed message gives a fixed ciphertext.
+/// let (ct, ss) = encapsulate_from_seed(&ek, &[3; 32]);
+/// assert_eq!(decapsulate(&dk, &ct).as_bytes(), ss.as_bytes());
+/// ```
 pub fn encapsulate_from_seed<P: Parameters>(
     ek: &EncapsulationKey<P>,
     m: &[u8; 32],
@@ -439,6 +563,18 @@ pub fn encapsulate_from_seed<P: Parameters>(
 
 /// ML-KEM.Decaps. A ciphertext that does not decrypt correctly gives a
 /// pseudo-random secret, so this never fails on a well-formed ciphertext.
+///
+/// # Examples
+///
+/// ```
+/// use tpt_dev_pqc::{MlKem512, decapsulate, encapsulate_from_seed, keygen_from_seed};
+///
+/// let (ek, dk) = keygen_from_seed::<MlKem512>(&[1; 32], &[2; 32]);
+/// let (ct, ss) = encapsulate_from_seed(&ek, &[3; 32]);
+/// // Decapsulation recovers the sender's secret without any extra input.
+/// let recovered = decapsulate(&dk, &ct);
+/// assert_eq!(recovered.as_bytes(), ss.as_bytes());
+/// ```
 pub fn decapsulate<P: Parameters>(dk: &DecapsulationKey<P>, ct: &Ciphertext<P>) -> SharedSecret {
     let k = P::K;
     let bytes = dk.as_bytes();
@@ -467,6 +603,26 @@ pub fn decapsulate<P: Parameters>(dk: &DecapsulationKey<P>, ct: &Ciphertext<P>) 
 }
 
 /// ML-KEM.KeyGen with seeds drawn from `rng`.
+///
+/// # Examples
+///
+/// ```
+/// struct Counter(u8);
+/// impl Rng for Counter {
+///     fn fill_bytes(&mut self, dest: &mut [u8]) {
+///         for b in dest.iter_mut() {
+///             *b = self.0;
+///             self.0 = self.0.wrapping_add(1);
+///         }
+///     }
+/// }
+/// use tpt_dev_pqc::{MlKem512, Rng, decapsulate, encapsulate, keygen};
+///
+/// let mut rng = Counter(0);
+/// let (ek, dk) = keygen::<MlKem512, _>(&mut rng);
+/// let (ct, ss) = encapsulate(&ek, &mut rng);
+/// assert_eq!(decapsulate(&dk, &ct).as_bytes(), ss.as_bytes());
+/// ```
 pub fn keygen<P: Parameters, R: Rng>(rng: &mut R) -> (EncapsulationKey<P>, DecapsulationKey<P>) {
     let mut d = [0u8; 32];
     let mut z = [0u8; 32];
@@ -479,6 +635,26 @@ pub fn keygen<P: Parameters, R: Rng>(rng: &mut R) -> (EncapsulationKey<P>, Decap
 }
 
 /// ML-KEM.Encaps with the message drawn from `rng`.
+///
+/// # Examples
+///
+/// ```
+/// struct Counter(u8);
+/// impl Rng for Counter {
+///     fn fill_bytes(&mut self, dest: &mut [u8]) {
+///         for b in dest.iter_mut() {
+///             *b = self.0;
+///             self.0 = self.0.wrapping_add(1);
+///         }
+///     }
+/// }
+/// use tpt_dev_pqc::{MlKem768, Rng, decapsulate, encapsulate, keygen};
+///
+/// let mut rng = Counter(7);
+/// let (ek, dk) = keygen::<MlKem768, _>(&mut rng);
+/// let (ct, ss) = encapsulate(&ek, &mut rng);
+/// assert_eq!(decapsulate(&dk, &ct).as_bytes(), ss.as_bytes());
+/// ```
 pub fn encapsulate<P: Parameters, R: Rng>(
     ek: &EncapsulationKey<P>,
     rng: &mut R,

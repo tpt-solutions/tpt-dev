@@ -158,6 +158,18 @@ impl F {
     /// The field element with the given canonical value, as little-endian bytes.
     ///
     /// Returns `None` if the value is not below the modulus.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_zk::{F, MODULUS_LE};
+    ///
+    /// let mut five = [0u8; 32];
+    /// five[0] = 5;
+    /// assert_eq!(F::from_bytes_le(&five).map(|f| f.to_i64()), Some(5));
+    /// // The modulus itself is not an element of the field.
+    /// assert!(F::from_bytes_le(&MODULUS_LE).is_none());
+    /// ```
     pub fn from_bytes_le(bytes: &[u8; 32]) -> Option<F> {
         let canonical = le_to_limbs(bytes);
         if geq(canonical, M) {
@@ -168,6 +180,17 @@ impl F {
     }
 
     /// The canonical value, as 32 little-endian bytes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_zk::{F, MODULUS_LE};
+    ///
+    /// // -1 is the modulus minus one, so its bytes are the modulus with the low byte lowered.
+    /// let bytes = F::from_i64(-1).to_bytes_le();
+    /// assert_eq!(bytes[0], MODULUS_LE[0] - 1);
+    /// assert_eq!(bytes[1..], MODULUS_LE[1..]);
+    /// ```
     pub fn to_bytes_le(self) -> [u8; 32] {
         limbs_to_le(self.canonical())
     }
@@ -177,6 +200,16 @@ impl F {
     }
 
     /// The element congruent to `v`, for negative `v` too.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_zk::F;
+    ///
+    /// let minus_three = F::from_i64(-3);
+    /// let three = F::from_i64(3);
+    /// assert_eq!(minus_three + three, F::from_i64(0));
+    /// ```
     pub fn from_i64(v: i64) -> F {
         let magnitude = [v.unsigned_abs(), 0, 0, 0];
         let canonical = if v < 0 && magnitude[0] != 0 {
@@ -191,6 +224,15 @@ impl F {
     ///
     /// A value that does not fit in 64 bits is truncated to its low 64 bits,
     /// so this is exact only for small values.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_zk::F;
+    ///
+    /// assert_eq!(F::from_i64(-7).to_i64(), -7);
+    /// assert_eq!(F::from_i64(7).to_i64(), 7);
+    /// ```
     pub fn to_i64(self) -> i64 {
         let c = self.canonical();
         let half = [

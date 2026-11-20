@@ -101,6 +101,7 @@ pub unsafe extern "C" fn counter_read(c: *const Counter, out: *mut u32) -> i32 {
     if c.state != STREAMING {
         return -2;
     }
+    // SAFETY: `out` is a writable u32 supplied by the caller, as documented above.
     unsafe { *out = c.ticks };
     0
 }
@@ -132,6 +133,8 @@ pub unsafe extern "C" fn counter_ticks_bytes(
     if c.state != STREAMING {
         return -2;
     }
+    // SAFETY: `out` and `len` are writable, as documented above, and the pointer
+    // written is to the live `c.ticks` field.
     unsafe {
         *out = core::ptr::addr_of!(c.ticks).cast::<u8>();
         *len = core::mem::size_of::<u32>();
@@ -160,30 +163,38 @@ impl Backend for CBackend {
         Handle::new(counter_create()).ok_or(Code(-1))
     }
 
+    // Each call below passes a handle from `create` that has not been destroyed,
+    // which is what the C functions require.
     fn open(&mut self, h: Handle<Counter>) -> Result<(), Code> {
+        // SAFETY: `h` came from `create` and is not yet destroyed.
         check(unsafe { counter_open(h.as_ptr()) })
     }
 
     fn start(&mut self, h: Handle<Counter>) -> Result<(), Code> {
+        // SAFETY: `h` came from `create` and is not yet destroyed.
         check(unsafe { counter_start(h.as_ptr()) })
     }
 
     fn stop(&mut self, h: Handle<Counter>) -> Result<(), Code> {
+        // SAFETY: `h` came from `create` and is not yet destroyed.
         check(unsafe { counter_stop(h.as_ptr()) })
     }
 
     fn close(&mut self, h: Handle<Counter>) -> Result<(), Code> {
+        // SAFETY: `h` came from `create` and is not yet destroyed.
         check(unsafe { counter_close(h.as_ptr()) })
     }
 
     fn destroy(&mut self, h: Handle<Counter>) {
         self.destroyed += 1;
+        // SAFETY: `h` came from `create`; this is the only destroy call for it.
         unsafe { counter_destroy(h.as_ptr()) };
     }
 
     fn view(&mut self, h: Handle<Counter>) -> Option<&[u8]> {
         let mut ptr: *const u8 = core::ptr::null();
         let mut len = 0usize;
+        // SAFETY: `h` came from `create` and is live; `ptr` and `len` are valid locals.
         if unsafe { counter_ticks_bytes(h.as_ptr(), &mut ptr, &mut len) } != 0 {
             return None;
         }

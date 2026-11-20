@@ -8,6 +8,7 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 readme = "README.md"
+keywords = ["mocking", "testing", "proc-macro"]
 categories = ["development-tools::testing"]
 
 # A proc-macro crate runs on the host, so it cannot target no_std bare metal.
@@ -17,7 +18,7 @@ proc-macro = true
 [dependencies]
 proc-macro2.workspace = true
 quote.workspace = true
-syn = { workspace = true, features = ["full", "proc-macro"] }
+syn = { workspace = true, features = ["full", "proc-macro", "visit-mut"] }
 
 [lints]
 workspace = true

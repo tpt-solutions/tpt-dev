@@ -43,6 +43,17 @@ pub struct Component {
 
 impl Component {
     /// Every import of the component, in the order the sections give them.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_compose::parse_component;
+    ///
+    /// const IMPORTS: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/component/imports.wasm"));
+    ///
+    /// let component = parse_component(IMPORTS).unwrap();
+    /// assert!(component.imports().count() > 0);
+    /// ```
     pub fn imports(&self) -> impl Iterator<Item = &ComponentImport> {
         self.sections
             .iter()
@@ -51,6 +62,18 @@ impl Component {
     }
 
     /// Every export of the component, in the order the sections give them.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_compose::parse_component;
+    ///
+    /// const ADD: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/component/add.wasm"));
+    ///
+    /// let component = parse_component(ADD).unwrap();
+    /// // The `add` fixture exports one item.
+    /// assert_eq!(component.exports().count(), 1);
+    /// ```
     pub fn exports(&self) -> impl Iterator<Item = &ComponentExport> {
         self.sections
             .iter()
@@ -67,6 +90,19 @@ impl Component {
     /// Returns `None` when the index is out of range, when it names a type that
     /// is not decoded, or when it names an import or alias of a type, since
     /// those are not resolved here.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_compose::parse_component;
+    ///
+    /// const ADD: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/component/add.wasm"));
+    ///
+    /// let component = parse_component(ADD).unwrap();
+    /// assert!(component.type_def(0).is_some());
+    /// // Past the last type there is nothing.
+    /// assert!(component.type_def(99).is_none());
+    /// ```
     pub fn type_def(&self, index: u32) -> Option<&TypeDef> {
         let entries = top_entries(&self.sections);
         match entries.get(index as usize)? {
@@ -181,6 +217,19 @@ pub enum Alias {
 impl Alias {
     /// The index space the alias adds an entry to. Core tables, memories, globals
     /// and tags are not tracked here, so an alias of one of those returns `None`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_compose::parse_component;
+    ///
+    /// const ADD: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/component/add.wasm"));
+    ///
+    /// let component = parse_component(ADD).unwrap();
+    /// // Section 2 of the fixture is the alias section.
+    /// let alias = &component.sections[2].aliases.as_ref().unwrap()[0];
+    /// assert!(alias.space().is_some());
+    /// ```
     pub fn space(&self) -> Option<Space> {
         match self {
             Alias::InstanceExport { kind, .. } => Some(kind.space()),
@@ -241,6 +290,14 @@ pub enum ExternDesc {
 
 impl ExternDesc {
     /// The kind this descriptor describes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_compose::{ExternDesc, ExternKind};
+    ///
+    /// assert_eq!(ExternDesc::Func(0).kind(), ExternKind::Func);
+    /// ```
     pub fn kind(&self) -> ExternKind {
         match self {
             ExternDesc::CoreModule(_) => ExternKind::CoreModule,
@@ -365,6 +422,15 @@ pub struct Section {
 
 impl Section {
     /// The name the specification gives to a section id.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_compose::component::Section;
+    ///
+    /// assert_eq!(Section::kind_name(11), "export");
+    /// assert_eq!(Section::kind_name(200), "unknown");
+    /// ```
     pub fn kind_name(id: u8) -> &'static str {
         match id {
             0 => "custom",
@@ -386,6 +452,19 @@ impl Section {
 }
 
 /// Reads a component from its binary form.
+///
+/// # Examples
+///
+/// ```
+/// use tpt_dev_compose::parse_component;
+///
+/// const ADD: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/component/add.wasm"));
+///
+/// let component = parse_component(ADD).unwrap();
+/// assert_eq!(component.sections.len(), 7);
+/// // Bytes that are not a component are refused.
+/// assert!(parse_component(b"not wasm").is_err());
+/// ```
 pub fn parse(bytes: &[u8]) -> Result<Component, ParseError> {
     parse_at(bytes, 0, 0, Vec::new())
 }

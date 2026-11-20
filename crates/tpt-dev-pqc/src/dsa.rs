@@ -22,6 +22,12 @@ const D: u32 = 13;
 const ZETA: i64 = 1753;
 /// 256^-1 mod q, which scales the inverse NTT.
 const N_INV: i64 = 8_347_681;
+/// The Montgomery radix is R = 2^32. `R mod q`, used below to build constants.
+const R_MOD_Q: i64 = (1i64 << 32) % Q as i64;
+/// R^2 mod q, which takes a product of two residues back into the normal domain.
+const R2_MOD_Q: u64 = (R_MOD_Q * R_MOD_Q % Q as i64) as u64;
+/// -q^-1 mod 2^32, the constant of the Montgomery reduction.
+const Q_NEG_INV: u32 = neg_inv_mod_2_32(Q as u32);
 /// Attempts that one signing call always makes. A signature is produced in the
 /// first attempt that passes, as in the standard loop, so the budget changes only
 /// the work done, not the output. With an acceptance chance of about 0.2 to 0.26
@@ -162,10 +168,49 @@ const ZETAS: [i32; N] = {
     t
 };
 
+/// -q^-1 mod 2^32 by Newton's iteration. An odd q is its own inverse mod 8, and
+/// each step doubles the number of correct low bits.
+const fn neg_inv_mod_2_32(q: u32) -> u32 {
+    let mut inv = q;
+    let mut i = 0;
+    while i < 5 {
+        inv = inv.wrapping_mul(2u32.wrapping_sub(q.wrapping_mul(inv)));
+        i += 1;
+    }
+    inv.wrapping_neg()
+}
+
+/// The twiddle factors in Montgomery form, zeta^BitRev8(m) * R mod q. A product
+/// of one of these with a residue, reduced by `redc`, gives the plain product.
+const ZETAS_MONT: [i32; N] = {
+    let mut t = [0i32; N];
+    let mut m = 0;
+    while m < N {
+        t[m] = (ZETAS[m] as i64 * R_MOD_Q % Q as i64) as i32;
+        m += 1;
+    }
+    t
+};
+
+/// 256^-1 * R mod q, the scaling constant of the inverse NTT in Montgomery form.
+const N_INV_MONT: u64 = (N_INV * R_MOD_Q % Q as i64) as u64;
+
 /// Reduces `x` to `0..q`. The sign correction is a mask, not a branch.
 #[inline(always)]
 fn modq(x: i32) -> i32 {
     let r = x % Q;
+    r + (Q & (r >> 31))
+}
+
+/// Montgomery reduction: returns `t * 2^-32 mod q` in `0..q`, for `t < q * 2^32`.
+/// It uses only 32-bit multiplies and 64-bit adds, so on Cortex-M it needs no
+/// 64-bit division library call (`__aeabi_ldivmod`).
+#[inline(always)]
+fn redc(t: u64) -> i32 {
+    let m = (t as u32).wrapping_mul(Q_NEG_INV);
+    // t + m*q is a multiple of 2^32, and its quotient is below 2q.
+    let u = ((t + u64::from(m) * Q as u64) >> 32) as i32;
+    let r = u - Q;
     r + (Q & (r >> 31))
 }
 
@@ -215,9 +260,9 @@ fn ntt(w: &mut Poly) {
         let mut start = 0;
         while start < N {
             m += 1;
-            let z = i64::from(ZETAS[m]);
+            let z = ZETAS_MONT[m] as u64;
             for j in start..start + len {
-                let t = (z * i64::from(w[j + len]) % i64::from(Q)) as i32;
+                let t = redc(z * u64::from(w[j + len] as u32));
                 w[j + len] = modq(w[j] - t);
                 w[j] = modq(w[j] + t);
             }
@@ -234,19 +279,19 @@ fn inverse_ntt(w: &mut Poly) {
         let mut start = 0;
         while start < N {
             m -= 1;
-            let z = i64::from(modq(-ZETAS[m]));
+            let z = modq(-ZETAS_MONT[m]) as u64;
             for j in start..start + len {
                 let t = w[j];
                 w[j] = modq(t + w[j + len]);
                 w[j + len] = modq(t - w[j + len]);
-                w[j + len] = (z * i64::from(w[j + len]) % i64::from(Q)) as i32;
+                w[j + len] = redc(z * u64::from(w[j + len] as u32));
             }
             start += 2 * len;
         }
         len *= 2;
     }
     for c in w.iter_mut() {
-        *c = (i64::from(*c) * N_INV % i64::from(Q)) as i32;
+        *c = redc(N_INV_MONT * u64::from(*c as u32));
     }
 }
 
@@ -254,7 +299,9 @@ fn inverse_ntt(w: &mut Poly) {
 fn pointwise(a: &Poly, b: &Poly) -> Poly {
     let mut out = ZERO;
     for i in 0..N {
-        out[i] = (i64::from(a[i]) * i64::from(b[i]) % i64::from(Q)) as i32;
+        // The first reduction leaves a*b/R, and the second, with R^2, gives a*b.
+        let ab = redc(u64::from(a[i] as u32) * u64::from(b[i] as u32));
+        out[i] = redc(u64::from(ab as u32) * R2_MOD_Q);
     }
     out
 }
@@ -628,11 +675,32 @@ pub struct VerifyingKey<P: Parameters> {
 
 impl<P: Parameters> VerifyingKey<P> {
     /// The encoded length for this parameter set.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_pqc::{MlDsa65, VerifyingKey};
+    ///
+    /// // ML-DSA-65 verifying keys are 1952 bytes.
+    /// assert_eq!(VerifyingKey::<MlDsa65>::encoded_len(), 1952);
+    /// ```
     pub fn encoded_len() -> usize {
         pk_len::<P>()
     }
 
     /// Parses a public key, checking its length.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_pqc::{MlDsa44, VerifyingKey, dsa_keygen_from_seed};
+    ///
+    /// let (vk, _sk) = dsa_keygen_from_seed::<MlDsa44>(&[1; 32]);
+    /// let parsed = VerifyingKey::<MlDsa44>::from_bytes(vk.as_bytes()).unwrap();
+    /// assert_eq!(parsed.as_bytes(), vk.as_bytes());
+    /// // A key of the wrong length is refused.
+    /// assert!(VerifyingKey::<MlDsa44>::from_bytes(&[0u8; 10]).is_err());
+    /// ```
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DsaError> {
         if bytes.len() != pk_len::<P>() {
             return Err(DsaError::InvalidLength);
@@ -644,6 +712,15 @@ impl<P: Parameters> VerifyingKey<P> {
     }
 
     /// The encoded key.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_pqc::{MlDsa44, VerifyingKey, dsa_keygen_from_seed};
+    ///
+    /// let (vk, _sk) = dsa_keygen_from_seed::<MlDsa44>(&[1; 32]);
+    /// assert_eq!(vk.as_bytes().len(), VerifyingKey::<MlDsa44>::encoded_len());
+    /// ```
     pub fn as_bytes(&self) -> &[u8] {
         &self.bytes
     }
@@ -658,11 +735,31 @@ pub struct SigningKey<P: Parameters> {
 
 impl<P: Parameters> SigningKey<P> {
     /// The encoded length for this parameter set.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_pqc::{MlDsa44, SigningKey};
+    ///
+    /// // ML-DSA-44 signing keys are 2560 bytes.
+    /// assert_eq!(SigningKey::<MlDsa44>::encoded_len(), 2560);
+    /// ```
     pub fn encoded_len() -> usize {
         sk_len::<P>()
     }
 
     /// Parses a secret key, checking its length.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_pqc::{MlDsa44, SigningKey, dsa_keygen_from_seed};
+    ///
+    /// let (_vk, sk) = dsa_keygen_from_seed::<MlDsa44>(&[1; 32]);
+    /// let parsed = SigningKey::<MlDsa44>::from_bytes(sk.as_bytes()).unwrap();
+    /// assert_eq!(parsed.as_bytes(), sk.as_bytes());
+    /// assert!(SigningKey::<MlDsa44>::from_bytes(&[0u8; 10]).is_err());
+    /// ```
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DsaError> {
         if bytes.len() != sk_len::<P>() {
             return Err(DsaError::InvalidLength);
@@ -674,6 +771,15 @@ impl<P: Parameters> SigningKey<P> {
     }
 
     /// The encoded key. Handle it as a secret.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_pqc::{MlDsa44, SigningKey, dsa_keygen_from_seed};
+    ///
+    /// let (_vk, sk) = dsa_keygen_from_seed::<MlDsa44>(&[1; 32]);
+    /// assert_eq!(sk.as_bytes().len(), SigningKey::<MlDsa44>::encoded_len());
+    /// ```
     pub fn as_bytes(&self) -> &[u8] {
         &self.bytes
     }
@@ -694,11 +800,32 @@ pub struct Signature<P: Parameters> {
 
 impl<P: Parameters> Signature<P> {
     /// The encoded length for this parameter set.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_pqc::{MlDsa44, Signature};
+    ///
+    /// // ML-DSA-44 signatures are 2420 bytes.
+    /// assert_eq!(Signature::<MlDsa44>::encoded_len(), 2420);
+    /// ```
     pub fn encoded_len() -> usize {
         sig_len::<P>()
     }
 
     /// Parses a signature, checking its length.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_pqc::{MlDsa44, Signature, dsa_keygen_from_seed, sign_deterministic};
+    ///
+    /// let (_vk, sk) = dsa_keygen_from_seed::<MlDsa44>(&[1; 32]);
+    /// let sig = sign_deterministic(&sk, b"message", b"").unwrap();
+    /// let parsed = Signature::<MlDsa44>::from_bytes(sig.as_bytes()).unwrap();
+    /// assert_eq!(parsed.as_bytes(), sig.as_bytes());
+    /// assert!(Signature::<MlDsa44>::from_bytes(&[0u8; 10]).is_err());
+    /// ```
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DsaError> {
         if bytes.len() != sig_len::<P>() {
             return Err(DsaError::InvalidLength);
@@ -710,6 +837,16 @@ impl<P: Parameters> Signature<P> {
     }
 
     /// The encoded signature.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_pqc::{MlDsa44, Signature, dsa_keygen_from_seed, sign_deterministic};
+    ///
+    /// let (_vk, sk) = dsa_keygen_from_seed::<MlDsa44>(&[1; 32]);
+    /// let sig = sign_deterministic(&sk, b"message", b"").unwrap();
+    /// assert_eq!(sig.as_bytes().len(), Signature::<MlDsa44>::encoded_len());
+    /// ```
     pub fn as_bytes(&self) -> &[u8] {
         &self.bytes
     }
@@ -764,6 +901,17 @@ fn sk_decode<P: Parameters>(bytes: &[u8]) -> Decoded {
 }
 
 /// ML-DSA.KeyGen_internal from the 32-byte seed `xi`.
+///
+/// # Examples
+///
+/// ```
+/// use tpt_dev_pqc::{MlDsa44, dsa_keygen_from_seed};
+///
+/// // The same seed always gives the same key pair.
+/// let (vk1, _sk1) = dsa_keygen_from_seed::<MlDsa44>(&[1; 32]);
+/// let (vk2, _sk2) = dsa_keygen_from_seed::<MlDsa44>(&[1; 32]);
+/// assert_eq!(vk1.as_bytes(), vk2.as_bytes());
+/// ```
 pub fn keygen_from_seed<P: Parameters>(xi: &[u8; 32]) -> (VerifyingKey<P>, SigningKey<P>) {
     let mut h = [0u8; 128];
     shake256(&[xi, &[P::K as u8], &[P::L as u8]], &mut h);
@@ -1037,6 +1185,16 @@ fn sign_with_randomizer<P: Parameters>(
 }
 
 /// Deterministic signing: the same key and message always give the same signature.
+///
+/// # Examples
+///
+/// ```
+/// use tpt_dev_pqc::{MlDsa44, dsa_keygen_from_seed, sign_deterministic, verify};
+///
+/// let (vk, sk) = dsa_keygen_from_seed::<MlDsa44>(&[1; 32]);
+/// let sig = sign_deterministic(&sk, b"hello", b"ctx").unwrap();
+/// assert!(verify(&vk, b"hello", b"ctx", &sig));
+/// ```
 pub fn sign_deterministic<P: Parameters>(
     sk: &SigningKey<P>,
     msg: &[u8],
@@ -1047,6 +1205,27 @@ pub fn sign_deterministic<P: Parameters>(
 
 /// Hedged signing: a fresh 32-byte randomizer is drawn from `rng`, which makes
 /// each signature differ even for the same message.
+///
+/// # Examples
+///
+/// ```
+/// struct Counter(u8);
+/// impl Rng for Counter {
+///     fn fill_bytes(&mut self, dest: &mut [u8]) {
+///         for b in dest.iter_mut() {
+///             *b = self.0;
+///             self.0 = self.0.wrapping_add(1);
+///         }
+///     }
+/// }
+/// use tpt_dev_pqc::{MlDsa44, Rng, dsa_keygen_from_seed, dsa_sign, verify};
+///
+/// let (vk, sk) = dsa_keygen_from_seed::<MlDsa44>(&[1; 32]);
+/// // Hedged signing: the randomizer comes from the generator, so each signature differs.
+/// let mut rng = Counter(0);
+/// let sig = dsa_sign(&sk, b"hello", b"", &mut rng).unwrap();
+/// assert!(verify(&vk, b"hello", b"", &sig));
+/// ```
 pub fn sign<P: Parameters, R: Rng>(
     sk: &SigningKey<P>,
     msg: &[u8],
@@ -1061,6 +1240,26 @@ pub fn sign<P: Parameters, R: Rng>(
 }
 
 /// ML-DSA.KeyGen with the seed drawn from `rng`.
+///
+/// # Examples
+///
+/// ```
+/// struct Counter(u8);
+/// impl Rng for Counter {
+///     fn fill_bytes(&mut self, dest: &mut [u8]) {
+///         for b in dest.iter_mut() {
+///             *b = self.0;
+///             self.0 = self.0.wrapping_add(1);
+///         }
+///     }
+/// }
+/// use tpt_dev_pqc::{MlDsa44, Rng, dsa_keygen, sign_deterministic, verify};
+///
+/// let mut rng = Counter(0);
+/// let (vk, sk) = dsa_keygen::<MlDsa44, _>(&mut rng);
+/// let sig = sign_deterministic(&sk, b"hello", b"").unwrap();
+/// assert!(verify(&vk, b"hello", b"", &sig));
+/// ```
 pub fn keygen<P: Parameters, R: Rng>(rng: &mut R) -> (VerifyingKey<P>, SigningKey<P>) {
     let mut xi = [0u8; 32];
     rng.fill_bytes(&mut xi);
@@ -1070,6 +1269,18 @@ pub fn keygen<P: Parameters, R: Rng>(rng: &mut R) -> (VerifyingKey<P>, SigningKe
 }
 
 /// ML-DSA.Verify. Returns `true` only for a valid signature on `msg` under `ctx`.
+///
+/// # Examples
+///
+/// ```
+/// use tpt_dev_pqc::{MlDsa44, dsa_keygen_from_seed, sign_deterministic, verify};
+///
+/// let (vk, sk) = dsa_keygen_from_seed::<MlDsa44>(&[9; 32]);
+/// let sig = sign_deterministic(&sk, b"msg", b"").unwrap();
+/// assert!(verify(&vk, b"msg", b"", &sig));
+/// // A different message does not verify.
+/// assert!(!verify(&vk, b"other", b"", &sig));
+/// ```
 pub fn verify<P: Parameters>(
     vk: &VerifyingKey<P>,
     msg: &[u8],

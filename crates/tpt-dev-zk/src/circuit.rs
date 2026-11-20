@@ -116,6 +116,16 @@ impl<'c> Wire<'c> {
     }
 
     /// The witness value, as a signed integer.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_zk::Circuit;
+    ///
+    /// let c = Circuit::new();
+    /// let x = c.private_input(-5);
+    /// assert_eq!((x.clone() * x.clone()).value(), 25);
+    /// ```
     pub fn value(&self) -> i64 {
         self.value.to_i64()
     }
@@ -196,6 +206,16 @@ impl Default for Circuit {
 
 impl Circuit {
     /// An empty circuit, with only the constant one.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_zk::Circuit;
+    ///
+    /// let c = Circuit::new();
+    /// assert_eq!(c.num_constraints(), 0);
+    /// assert_eq!(c.num_wires(), 1); // only the constant one
+    /// ```
     pub fn new() -> Self {
         Self {
             state: RefCell::new(State {
@@ -217,16 +237,49 @@ impl Circuit {
     }
 
     /// A private input, supplied by the prover.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_zk::Circuit;
+    ///
+    /// let c = Circuit::new();
+    /// let secret = c.private_input(42);
+    /// assert_eq!(secret.value(), 42);
+    /// ```
     pub fn private_input(&self, v: i64) -> Wire<'_> {
         self.input(Kind::PrivateInput, v)
     }
 
     /// A public input, supplied by the prover and visible to the verifier.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_zk::Circuit;
+    ///
+    /// let c = Circuit::new();
+    /// let price = c.public_input(7);
+    /// assert_eq!(price.value(), 7);
+    /// ```
     pub fn public_input(&self, v: i64) -> Wire<'_> {
         self.input(Kind::PublicInput, v)
     }
 
     /// Makes `w` a public output. Returns its index, for [`Circuit::value`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_zk::Circuit;
+    ///
+    /// let c = Circuit::new();
+    /// let x = c.private_input(6);
+    /// let y = c.private_input(7);
+    /// let index = c.output(&(x * y));
+    /// assert_eq!(c.value(index), 42);
+    /// assert!(c.check().is_ok());
+    /// ```
     pub fn output(&self, w: &Wire<'_>) -> usize {
         let mut s = self.state.borrow_mut();
         let o = s.alloc(Kind::Output, w.value);
@@ -236,6 +289,18 @@ impl Circuit {
     }
 
     /// Requires two wires to be equal. The constraint fails the check if they are not.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_zk::Circuit;
+    ///
+    /// let c = Circuit::new();
+    /// let a = c.private_input(3);
+    /// let b = c.private_input(1) + c.private_input(2);
+    /// c.assert_eq(&a, &b);
+    /// assert!(c.check().is_ok());
+    /// ```
     pub fn assert_eq(&self, a: &Wire<'_>, b: &Wire<'_>) {
         let diff = (a.clone() - b.clone()).lc;
         self.state
@@ -245,22 +310,66 @@ impl Circuit {
     }
 
     /// The witness value of wire `index`, as a signed integer.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_zk::Circuit;
+    ///
+    /// let c = Circuit::new();
+    /// let index = c.output(&c.public_input(9));
+    /// assert_eq!(c.value(index), 9);
+    /// ```
     pub fn value(&self, index: usize) -> i64 {
         self.state.borrow().values[index].to_i64()
     }
 
     /// Number of constraints.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_zk::Circuit;
+    ///
+    /// let c = Circuit::new();
+    /// let x = c.private_input(2);
+    /// let _ = x.clone() * x; // one product, one constraint
+    /// assert_eq!(c.num_constraints(), 1);
+    /// ```
     pub fn num_constraints(&self) -> usize {
         self.state.borrow().constraints.len()
     }
 
     /// Number of wires, including the constant one.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_zk::Circuit;
+    ///
+    /// let c = Circuit::new();
+    /// let x = c.private_input(2);
+    /// let _ = x.clone() * x; // the constant, x, and the product
+    /// assert_eq!(c.num_wires(), 3);
+    /// ```
     pub fn num_wires(&self) -> usize {
         self.state.borrow().values.len()
     }
 
     /// Checks every constraint against the witness. Returns the index of the
     /// first failing constraint.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_zk::Circuit;
+    ///
+    /// let c = Circuit::new();
+    /// let a = c.private_input(2);
+    /// let b = c.private_input(3);
+    /// c.assert_eq(&a, &b); // constraint 0 is false for these witnesses
+    /// assert_eq!(c.check(), Err(0));
+    /// ```
     pub fn check(&self) -> Result<(), usize> {
         let s = self.state.borrow();
         for (i, [a, b, c]) in s.constraints.iter().enumerate() {
@@ -272,16 +381,52 @@ impl Circuit {
     }
 
     /// The circuit in the binary `.r1cs` format, for circom-compatible tools.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_zk::Circuit;
+    ///
+    /// let c = Circuit::new();
+    /// let x = c.private_input(3);
+    /// let _ = c.output(&(x.clone() * x));
+    /// let bytes = c.to_r1cs();
+    /// assert_eq!(&bytes[..4], b"r1cs");
+    /// ```
     pub fn to_r1cs(&self) -> Vec<u8> {
         crate::r1cs::encode(&self.state.borrow())
     }
 
     /// The witness in the wire order of the `.r1cs` format, for the prover.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_zk::Circuit;
+    ///
+    /// let c = Circuit::new();
+    /// let x = c.private_input(5);
+    /// let _ = c.output(&(x.clone() * x));
+    /// let w = c.witness();
+    /// assert_eq!(w[0].to_i64(), 1); // the constant one comes first
+    /// ```
     pub fn witness(&self) -> Vec<F> {
         crate::r1cs::ordered_witness(&self.state.borrow())
     }
 
     /// The witness in the binary `.wtns` format, for snarkjs.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_zk::Circuit;
+    ///
+    /// let c = Circuit::new();
+    /// let x = c.private_input(5);
+    /// let _ = c.output(&(x.clone() * x));
+    /// let bytes = c.to_wtns();
+    /// assert_eq!(&bytes[..4], b"wtns");
+    /// ```
     pub fn to_wtns(&self) -> Vec<u8> {
         crate::r1cs::encode_witness(&self.state.borrow())
     }

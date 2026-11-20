@@ -41,6 +41,18 @@ pub struct Example {
 /// Finds every fenced code block in `markdown`.
 ///
 /// A block with no closing fence runs to the end of the input.
+///
+/// # Examples
+///
+/// ```
+/// use tpt_dev_doc::extract;
+///
+/// let fence = "```";
+/// let markdown = format!("Intro text.\n\n{fence}rust\nassert!(true);\n{fence}\n");
+/// let examples = extract(&markdown);
+/// assert_eq!(examples.len(), 1);
+/// assert!(examples[0].source.contains("assert!(true);"));
+/// ```
 pub fn extract(markdown: &str) -> Vec<Example> {
     let mut examples = Vec::new();
     let mut lines = markdown.lines().enumerate();
@@ -74,6 +86,17 @@ pub fn extract(markdown: &str) -> Vec<Example> {
 
 /// Returns the Rust source of the doc comments in `source`, with the `///` and
 /// `//!` markers removed. Other lines are dropped.
+///
+/// # Examples
+///
+/// ```
+/// use tpt_dev_doc::doc_comments;
+///
+/// let source = "/// Adds one.\n/// assert_eq!(add_one(1), 2);\npub fn add_one(x: u8) -> u8 { x + 1 }\n";
+/// let text = doc_comments(source);
+/// assert!(text.contains("Adds one."));
+/// assert!(!text.contains("///"));
+/// ```
 pub fn doc_comments(source: &str) -> String {
     let mut out = String::new();
     for line in source.lines() {

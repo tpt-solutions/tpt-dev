@@ -22,6 +22,15 @@ impl Code {
     pub const OK: Code = Code(0);
 
     /// Returns `true` for success.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_ffi::Code;
+    ///
+    /// assert!(Code::OK.is_ok());
+    /// assert!(!Code(-1).is_ok());
+    /// ```
     pub const fn is_ok(self) -> bool {
         self.0 == 0
     }

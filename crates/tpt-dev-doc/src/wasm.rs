@@ -26,6 +26,22 @@ const MAX_MEMORY: u32 = 16 * 1024 * 1024;
 /// The Rust source to compile for `example`, or `None` when the example is not
 /// run as Wasm. Only [`Mode::Run`] examples are built. The body becomes an
 /// exported `run` function, so a panic in the example traps.
+///
+/// # Examples
+///
+/// ```
+/// # #[cfg(feature = "std")]
+/// # fn main() {
+/// use tpt_dev_doc::extract;
+/// use tpt_dev_doc::wasm::wasm_source;
+///
+/// let examples = extract("```rust\nassert_eq!(1 + 1, 2);\n```\n");
+/// let source = wasm_source(&examples[0]).unwrap();
+/// assert!(source.contains("pub extern \"C\" fn run()"));
+/// # }
+/// # #[cfg(not(feature = "std"))]
+/// # fn main() {}
+/// ```
 pub fn wasm_source(example: &Example) -> Option<String> {
     if example.mode != Mode::Run || example.source.contains("fn main") {
         return None;
@@ -42,6 +58,24 @@ pub fn wasm_source(example: &Example) -> Option<String> {
 /// The source is written to `work_dir/example.rs`. The `RUSTC` environment
 /// variable selects the compiler, as in cargo. On failure, the error holds
 /// rustc's stderr.
+///
+/// # Examples
+///
+/// ```
+/// # #[cfg(feature = "std")]
+/// # fn main() {
+/// use tpt_dev_doc::extract;
+/// use tpt_dev_doc::wasm::compile;
+///
+/// // Only runnable examples compile, so a text block is refused before rustc runs.
+/// let examples = extract("```text\nnot rust\n```\n");
+/// let dir = std::env::temp_dir().join("tpt-dev-doc-compile-example");
+/// let err = compile(&examples[0], &dir, &dir.join("out.wasm")).unwrap_err();
+/// assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+/// # }
+/// # #[cfg(not(feature = "std"))]
+/// # fn main() {}
+/// ```
 pub fn compile(example: &Example, work_dir: &Path, out_file: &Path) -> io::Result<()> {
     let source = wasm_source(example).ok_or_else(|| {
         io::Error::new(

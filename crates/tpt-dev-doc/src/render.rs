@@ -8,6 +8,14 @@ use alloc::string::{String, ToString};
 use crate::extract::{Example, Mode};
 
 /// Escapes text for use in HTML element content or a double-quoted attribute.
+///
+/// # Examples
+///
+/// ```
+/// use tpt_dev_doc::escape;
+///
+/// assert_eq!(escape("<b>&"), "&lt;b&gt;&amp;");
+/// ```
 pub fn escape(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
@@ -46,6 +54,16 @@ fn mode_label(mode: Mode) -> &'static str {
 }
 
 /// One example, as a section with its line number and mode.
+///
+/// # Examples
+///
+/// ```
+/// use tpt_dev_doc::{example_section, extract};
+///
+/// let examples = extract("```rust\nassert!(1 < 2);\n```\n");
+/// let html = example_section(&examples[0]);
+/// assert!(html.contains("assert!(1 &lt; 2);"));
+/// ```
 pub fn example_section(example: &Example) -> String {
     let language = if example.mode == Mode::Text {
         "text"
@@ -68,6 +86,16 @@ pub fn example_section(example: &Example) -> String {
 }
 
 /// A complete page showing `examples` under `title`.
+///
+/// # Examples
+///
+/// ```
+/// use tpt_dev_doc::page;
+///
+/// let html = page("Examples", &[]);
+/// assert!(html.starts_with("<!doctype html>"));
+/// assert!(html.contains("Examples"));
+/// ```
 pub fn page(title: &str, examples: &[Example]) -> String {
     let mut out = String::from(
         "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n\
@@ -100,6 +128,19 @@ pub fn page(title: &str, examples: &[Example]) -> String {
 ///
 /// Returns `None` when the marker is not in the page, so the caller can report
 /// that rustdoc's layout has changed.
+///
+/// # Examples
+///
+/// ```
+/// use tpt_dev_doc::inject_before;
+///
+/// let html = "<html><body>text</body></html>";
+/// assert_eq!(
+///     inject_before(html, "</body>", "<p>note</p>").unwrap(),
+///     "<html><body>text<p>note</p></body></html>"
+/// );
+/// assert!(inject_before(html, "</main>", "x").is_none());
+/// ```
 pub fn inject_before(page: &str, marker: &str, fragment: &str) -> Option<String> {
     let at = page.find(marker)?;
     let mut out = String::with_capacity(page.len() + fragment.len());

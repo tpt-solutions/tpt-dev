@@ -44,6 +44,25 @@ pub struct Partition<'a> {
 
 impl<'a> Partition<'a> {
     /// A partition over `regions`. Returns `None` if a region is empty, or two overlap.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_tee::trustzone::{Partition, Region, Security};
+    ///
+    /// let regions = [
+    ///     Region { start: 0, end: 0x100, security: Security::NonSecure },
+    ///     Region { start: 0x100, end: 0x200, security: Security::Secure },
+    /// ];
+    /// assert!(Partition::new(&regions).is_some());
+    ///
+    /// // Overlapping regions are rejected.
+    /// let overlapping = [
+    ///     Region { start: 0, end: 0x100, security: Security::NonSecure },
+    ///     Region { start: 0x80, end: 0x180, security: Security::Secure },
+    /// ];
+    /// assert!(Partition::new(&overlapping).is_none());
+    /// ```
     pub fn new(regions: &'a [Region]) -> Option<Self> {
         for (i, a) in regions.iter().enumerate() {
             if a.start >= a.end {
@@ -69,6 +88,22 @@ impl<'a> Partition<'a> {
     ///
     /// Every byte must be permitted. A range that crosses a boundary is allowed
     /// only if each part is.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_tee::World;
+    /// use tpt_dev_tee::trustzone::{Partition, Region, Security};
+    ///
+    /// let regions = [
+    ///     Region { start: 0, end: 0x100, security: Security::NonSecure },
+    ///     Region { start: 0x100, end: 0x200, security: Security::Secure },
+    /// ];
+    /// let partition = Partition::new(&regions).unwrap();
+    /// assert!(partition.allows(World::Normal, 0x10, 4));
+    /// assert!(!partition.allows(World::Normal, 0x100, 4));
+    /// assert!(partition.allows(World::Secure, 0x100, 4));
+    /// ```
     pub fn allows(&self, world: World, start: usize, len: usize) -> bool {
         if world == World::Secure {
             return true;
@@ -97,6 +132,17 @@ pub struct Gate<'a> {
 
 impl<'a> Gate<'a> {
     /// A gate that starts in the normal world, with the given entry points.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_tee::World;
+    /// use tpt_dev_tee::trustzone::Gate;
+    ///
+    /// let entries = [0x1000usize];
+    /// let gate = Gate::new(&entries);
+    /// assert_eq!(gate.world(), World::Normal);
+    /// ```
     pub const fn new(entries: &'a [usize]) -> Self {
         Self {
             entries,
@@ -105,12 +151,38 @@ impl<'a> Gate<'a> {
     }
 
     /// The world the processor is running in.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_tee::World;
+    /// use tpt_dev_tee::trustzone::Gate;
+    ///
+    /// let entries = [0x1000usize];
+    /// let mut gate = Gate::new(&entries);
+    /// gate.enter(0x1000).unwrap();
+    /// assert_eq!(gate.world(), World::Secure);
+    /// ```
     pub fn world(&self) -> World {
         self.world
     }
 
     /// Enters the secure world at `entry`. Refused unless `entry` is registered,
     /// and unless the caller is in the normal world, so entry does not nest.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_tee::trustzone::Gate;
+    ///
+    /// let entries = [0x1000usize];
+    /// let mut gate = Gate::new(&entries);
+    /// // An entry point that was not registered is refused.
+    /// assert!(gate.enter(0x2000).is_err());
+    /// gate.enter(0x1000).unwrap();
+    /// // Entry does not nest.
+    /// assert!(gate.enter(0x1000).is_err());
+    /// ```
     pub fn enter(&mut self, entry: usize) -> Result<(), TeeError> {
         if self.world == World::Secure || !self.entries.contains(&entry) {
             return Err(TeeError::Denied);
@@ -120,6 +192,21 @@ impl<'a> Gate<'a> {
     }
 
     /// Returns to the normal world. Refused unless the caller is in the secure world.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_tee::World;
+    /// use tpt_dev_tee::trustzone::Gate;
+    ///
+    /// let entries = [0x1000usize];
+    /// let mut gate = Gate::new(&entries);
+    /// // Leaving is refused from the normal world.
+    /// assert!(gate.leave().is_err());
+    /// gate.enter(0x1000).unwrap();
+    /// gate.leave().unwrap();
+    /// assert_eq!(gate.world(), World::Normal);
+    /// ```
     pub fn leave(&mut self) -> Result<(), TeeError> {
         if self.world != World::Secure {
             return Err(TeeError::Denied);
@@ -129,6 +216,22 @@ impl<'a> Gate<'a> {
     }
 
     /// Checks an access by the current world against `partition`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_tee::trustzone::{Gate, Partition, Region, Security};
+    ///
+    /// let regions = [
+    ///     Region { start: 0, end: 0x100, security: Security::NonSecure },
+    ///     Region { start: 0x100, end: 0x200, security: Security::Secure },
+    /// ];
+    /// let partition = Partition::new(&regions).unwrap();
+    /// let entries = [0x1000usize];
+    /// let gate = Gate::new(&entries);
+    /// assert!(gate.check(&partition, 0x10, 4).is_ok());
+    /// assert!(gate.check(&partition, 0x100, 4).is_err());
+    /// ```
     pub fn check(
         &self,
         partition: &Partition<'_>,

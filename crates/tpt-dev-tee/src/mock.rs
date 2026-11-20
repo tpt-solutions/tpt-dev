@@ -26,6 +26,16 @@ pub struct MockTee<const MEM: usize, const SERVICES: usize> {
 impl<const MEM: usize, const SERVICES: usize> MockTee<MEM, SERVICES> {
     /// A mock with zeroed secure memory, the given attestation key, and the
     /// measurement it reports for its secure code.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_tee::SecureMemory;
+    /// use tpt_dev_tee::mock::{MockTee, measure};
+    ///
+    /// let tee: MockTee<64, 4> = MockTee::new([7u8; 32], measure(b"firmware"));
+    /// assert_eq!(tee.capacity(), 64);
+    /// ```
     pub const fn new(key: [u8; DIGEST_LEN], measurement: Measurement) -> Self {
         Self {
             memory: [0; MEM],
@@ -37,6 +47,25 @@ impl<const MEM: usize, const SERVICES: usize> MockTee<MEM, SERVICES> {
 
     /// Registers `handler` under `id`. A second registration for the same id
     /// replaces the first.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_tee::SecureCall;
+    /// use tpt_dev_tee::TeeError;
+    /// use tpt_dev_tee::mock::{MockTee, measure};
+    ///
+    /// fn echo(_mem: &mut [u8; 16], args: &[u8], out: &mut [u8]) -> Result<usize, TeeError> {
+    ///     out[..args.len()].copy_from_slice(args);
+    ///     Ok(args.len())
+    /// }
+    ///
+    /// let mut tee: MockTee<16, 2> = MockTee::new([0u8; 32], measure(b"firmware"));
+    /// tee.register(1, echo).unwrap();
+    /// let mut out = [0u8; 8];
+    /// let n = tee.call(1, b"hi", &mut out).unwrap();
+    /// assert_eq!(&out[..n], b"hi");
+    /// ```
     pub fn register(&mut self, id: u32, handler: Handler<MEM>) -> Result<(), TeeError> {
         if let Some(slot) = self
             .services
@@ -118,6 +147,15 @@ impl<const MEM: usize, const SERVICES: usize> SecureCall for MockTee<MEM, SERVIC
 }
 
 /// Computes a measurement of a code image, with the mock's digest function.
+///
+/// # Examples
+///
+/// ```
+/// use tpt_dev_tee::mock::measure;
+///
+/// assert_eq!(measure(b"image"), measure(b"image"));
+/// assert_ne!(measure(b"image"), measure(b"other image"));
+/// ```
 pub fn measure(image: &[u8]) -> Measurement {
     Measurement(digest([0x6d65_6173_7572_65d1, 0, 0, 0], &[image]))
 }

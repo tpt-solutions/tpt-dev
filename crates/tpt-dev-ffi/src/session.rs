@@ -70,6 +70,35 @@ pub struct View<'v> {
 
 impl View<'_> {
     /// The viewed bytes. They are valid only inside the view's closure.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_ffi::{Backend, Code, Session};
+    ///
+    /// struct Bytes(Vec<u8>);
+    /// impl Backend for Bytes {
+    ///     type Handle = u32;
+    ///     fn create(&mut self) -> Result<u32, Code> { Ok(1) }
+    ///     fn open(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn start(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn stop(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn close(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn destroy(&mut self, _: u32) {}
+    ///     fn view(&mut self, _: u32) -> Option<&[u8]> { Some(&self.0) }
+    /// }
+    ///
+    /// let mut backend = Bytes(vec![1, 2, 3]);
+    /// let mut streaming = Session::new(&mut backend)
+    ///     .create()
+    ///     .unwrap()
+    ///     .open()
+    ///     .unwrap()
+    ///     .start()
+    ///     .unwrap();
+    /// let len = streaming.with_view(|view| view.as_slice().len()).unwrap();
+    /// assert_eq!(len, 3);
+    /// ```
     pub fn as_slice(&self) -> &[u8] {
         self.bytes
     }
@@ -186,6 +215,27 @@ impl<'b, B: Backend, S> Session<'b, B, S> {
 
     /// Runs a library call that does not change state, such as a read. The
     /// call borrows the session, so the state cannot change while it runs.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_ffi::{Backend, Code, Session};
+    ///
+    /// struct Lib;
+    /// impl Backend for Lib {
+    ///     type Handle = u32;
+    ///     fn create(&mut self) -> Result<u32, Code> { Ok(1) }
+    ///     fn open(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn start(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn stop(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn close(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn destroy(&mut self, _: u32) {}
+    /// }
+    ///
+    /// let mut lib = Lib;
+    /// let mut session = Session::new(&mut lib).create().unwrap().open().unwrap();
+    /// assert_eq!(session.with(|_, handle| handle), Some(1));
+    /// ```
     pub fn with<R>(&mut self, f: impl FnOnce(&mut B, B::Handle) -> R) -> Option<R> {
         let h = self.inner.handle?;
         Some(f(self.inner.backend, h))
@@ -194,6 +244,27 @@ impl<'b, B: Backend, S> Session<'b, B, S> {
 
 impl<'b, B: Backend> Session<'b, B, Closed> {
     /// A session that has no library object yet.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_ffi::{Backend, Code, Session};
+    ///
+    /// struct Lib;
+    /// impl Backend for Lib {
+    ///     type Handle = u32;
+    ///     fn create(&mut self) -> Result<u32, Code> { Ok(1) }
+    ///     fn open(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn start(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn stop(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn close(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn destroy(&mut self, _: u32) {}
+    /// }
+    ///
+    /// let mut lib = Lib;
+    /// let session = Session::new(&mut lib);
+    /// assert_eq!(format!("{session:?}"), "Session { open: false }");
+    /// ```
     pub fn new(backend: &'b mut B) -> Self {
         Self {
             inner: Inner {
@@ -205,6 +276,27 @@ impl<'b, B: Backend> Session<'b, B, Closed> {
     }
 
     /// Creates the library object. The session stays `Closed`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_ffi::{Backend, Code, Session};
+    ///
+    /// struct Lib;
+    /// impl Backend for Lib {
+    ///     type Handle = u32;
+    ///     fn create(&mut self) -> Result<u32, Code> { Ok(1) }
+    ///     fn open(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn start(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn stop(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn close(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn destroy(&mut self, _: u32) {}
+    /// }
+    ///
+    /// let mut lib = Lib;
+    /// let session = Session::new(&mut lib).create().unwrap();
+    /// assert_eq!(format!("{session:?}"), "Session { open: true }");
+    /// ```
     pub fn create(mut self) -> Result<Self, Failed<Self>> {
         match self.inner.backend.create() {
             Ok(h) => {
@@ -219,6 +311,27 @@ impl<'b, B: Backend> Session<'b, B, Closed> {
     }
 
     /// Opens the session.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_ffi::{Backend, Code, Session};
+    ///
+    /// struct Lib;
+    /// impl Backend for Lib {
+    ///     type Handle = u32;
+    ///     fn create(&mut self) -> Result<u32, Code> { Ok(1) }
+    ///     fn open(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn start(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn stop(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn close(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn destroy(&mut self, _: u32) {}
+    /// }
+    ///
+    /// let mut lib = Lib;
+    /// let session = Session::new(&mut lib).create().unwrap().open().unwrap();
+    /// assert_eq!(format!("{session:?}"), "Session { open: true }");
+    /// ```
     pub fn open(self) -> Result<Session<'b, B, Open>, Failed<Self>> {
         self.transition(|b, h| b.open(h))
     }
@@ -226,11 +339,65 @@ impl<'b, B: Backend> Session<'b, B, Closed> {
 
 impl<'b, B: Backend> Session<'b, B, Open> {
     /// Starts streaming.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_ffi::{Backend, Code, Session};
+    ///
+    /// struct Lib;
+    /// impl Backend for Lib {
+    ///     type Handle = u32;
+    ///     fn create(&mut self) -> Result<u32, Code> { Ok(1) }
+    ///     fn open(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn start(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn stop(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn close(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn destroy(&mut self, _: u32) {}
+    /// }
+    ///
+    /// let mut lib = Lib;
+    /// let streaming = Session::new(&mut lib)
+    ///     .create()
+    ///     .unwrap()
+    ///     .open()
+    ///     .unwrap()
+    ///     .start()
+    ///     .unwrap();
+    /// drop(streaming);
+    /// ```
     pub fn start(self) -> Result<Session<'b, B, Streaming>, Failed<Self>> {
         self.transition(|b, h| b.start(h))
     }
 
     /// Closes the session. The library object is freed when the returned session is dropped.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_ffi::{Backend, Code, Session};
+    ///
+    /// struct Lib;
+    /// impl Backend for Lib {
+    ///     type Handle = u32;
+    ///     fn create(&mut self) -> Result<u32, Code> { Ok(1) }
+    ///     fn open(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn start(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn stop(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn close(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn destroy(&mut self, _: u32) {}
+    /// }
+    ///
+    /// let mut lib = Lib;
+    /// let closed = Session::new(&mut lib)
+    ///     .create()
+    ///     .unwrap()
+    ///     .open()
+    ///     .unwrap()
+    ///     .close()
+    ///     .unwrap();
+    /// drop(closed);
+    /// ```
     pub fn close(self) -> Result<Session<'b, B, Closed>, Failed<Self>> {
         self.transition(|b, h| b.close(h))
     }
@@ -238,6 +405,35 @@ impl<'b, B: Backend> Session<'b, B, Open> {
 
 impl<'b, B: Backend> Session<'b, B, Streaming> {
     /// Stops streaming, back to `Open`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_ffi::{Backend, Code, Session};
+    ///
+    /// struct Lib;
+    /// impl Backend for Lib {
+    ///     type Handle = u32;
+    ///     fn create(&mut self) -> Result<u32, Code> { Ok(1) }
+    ///     fn open(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn start(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn stop(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn close(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn destroy(&mut self, _: u32) {}
+    /// }
+    ///
+    /// let mut lib = Lib;
+    /// let open = Session::new(&mut lib)
+    ///     .create()
+    ///     .unwrap()
+    ///     .open()
+    ///     .unwrap()
+    ///     .start()
+    ///     .unwrap()
+    ///     .stop()
+    ///     .unwrap();
+    /// drop(open);
+    /// ```
     pub fn stop(self) -> Result<Session<'b, B, Open>, Failed<Self>> {
         self.transition(|b, h| b.stop(h))
     }
@@ -245,6 +441,35 @@ impl<'b, B: Backend> Session<'b, B, Streaming> {
     /// Gives `f` a zero-copy view of the library's bytes, if the backend exposes
     /// any. The view borrows the session for the call, and `f` must not keep it.
     /// Returns `None` when there is no object or no view.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_ffi::{Backend, Code, Session};
+    ///
+    /// struct Bytes(Vec<u8>);
+    /// impl Backend for Bytes {
+    ///     type Handle = u32;
+    ///     fn create(&mut self) -> Result<u32, Code> { Ok(1) }
+    ///     fn open(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn start(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn stop(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn close(&mut self, _: u32) -> Result<(), Code> { Ok(()) }
+    ///     fn destroy(&mut self, _: u32) {}
+    ///     fn view(&mut self, _: u32) -> Option<&[u8]> { Some(&self.0) }
+    /// }
+    ///
+    /// let mut backend = Bytes(vec![7, 8]);
+    /// let mut streaming = Session::new(&mut backend)
+    ///     .create()
+    ///     .unwrap()
+    ///     .open()
+    ///     .unwrap()
+    ///     .start()
+    ///     .unwrap();
+    /// let first = streaming.with_view(|view| view[0]).unwrap();
+    /// assert_eq!(first, 7);
+    /// ```
     pub fn with_view<R>(&mut self, f: impl for<'v> FnOnce(View<'v>) -> R) -> Option<R> {
         let h = self.inner.handle?;
         let bytes = self.inner.backend.view(h)?;

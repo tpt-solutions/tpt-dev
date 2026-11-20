@@ -921,6 +921,21 @@ pub struct FuncAbi {
 /// record layout: each value at its own alignment, in order.
 ///
 /// `space` is the type index space that `tys` refer to.
+///
+/// # Examples
+///
+/// ```
+/// use tpt_dev_compose::types::{Primitive, ValueType, tuple_layout};
+///
+/// // A u8 at offset 0 and a u32 aligned to offset 4: eight bytes in all.
+/// let mem = tuple_layout(
+///     &[],
+///     &[ValueType::Primitive(Primitive::U8), ValueType::Primitive(Primitive::U32)],
+/// )
+/// .unwrap();
+/// assert_eq!(mem.offsets, vec![0, 4]);
+/// assert_eq!(mem.layout.size, 8);
+/// ```
 pub fn tuple_layout(space: &[TypeDef], tys: &[ValueType]) -> Result<MemoryTuple, AbiError> {
     let mut abi = Abi {
         space,
@@ -937,6 +952,22 @@ pub fn tuple_layout(space: &[TypeDef], tys: &[ValueType]) -> Result<MemoryTuple,
 /// in memory, and [`FuncAbi`] gives its offsets.
 ///
 /// `space` is the type index space that the function's types refer to.
+///
+/// # Examples
+///
+/// ```
+/// use tpt_dev_compose::module::ValType;
+/// use tpt_dev_compose::types::{Direction, Field, FuncType, Primitive, ValueType, func_abi};
+///
+/// // A function taking one u32 flattens to one i32 parameter.
+/// let ft = FuncType {
+///     params: vec![Field { name: "x".to_string(), ty: ValueType::Primitive(Primitive::U32) }],
+///     results: vec![],
+/// };
+/// let abi = func_abi(&[], &ft, Direction::Lower).unwrap();
+/// assert_eq!(abi.params, vec![ValType::I32]);
+/// assert!(abi.results.is_empty());
+/// ```
 pub fn func_abi(space: &[TypeDef], ft: &FuncType, dir: Direction) -> Result<FuncAbi, AbiError> {
     let mut abi = Abi {
         space,
@@ -982,6 +1013,16 @@ pub fn func_abi(space: &[TypeDef], ft: &FuncType, dir: Direction) -> Result<Func
 /// The size and alignment of a value type, in linear memory.
 ///
 /// `space` is the type index space that `ty` refers to.
+///
+/// # Examples
+///
+/// ```
+/// use tpt_dev_compose::types::{Primitive, ValueType, layout};
+///
+/// let l = layout(&[], &ValueType::Primitive(Primitive::U16)).unwrap();
+/// assert_eq!(l.size, 2);
+/// assert_eq!(l.align, 2);
+/// ```
 pub fn layout(space: &[TypeDef], ty: &ValueType) -> Result<Layout, AbiError> {
     let mut abi = Abi {
         space,
@@ -994,6 +1035,17 @@ pub fn layout(space: &[TypeDef], ty: &ValueType) -> Result<Layout, AbiError> {
 /// registers rather than through memory.
 ///
 /// `space` is the type index space that `ty` refers to.
+///
+/// # Examples
+///
+/// ```
+/// use tpt_dev_compose::module::ValType;
+/// use tpt_dev_compose::types::{Primitive, ValueType, flatten};
+///
+/// // A u64 flattens to a single i64.
+/// let flat = flatten(&[], &ValueType::Primitive(Primitive::U64)).unwrap();
+/// assert_eq!(flat, vec![ValType::I64]);
+/// ```
 pub fn flatten(space: &[TypeDef], ty: &ValueType) -> Result<Vec<ValType>, AbiError> {
     let mut abi = Abi {
         space,

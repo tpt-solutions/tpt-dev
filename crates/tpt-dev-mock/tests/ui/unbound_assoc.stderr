@@ -1,0 +1,5 @@
+error: associated type `Item` must be bound, for example #[mock(Item = u32)]
+ --> tests/ui/unbound_assoc.rs:5:10
+  |
+5 |     type Item;
+  |          ^^^^

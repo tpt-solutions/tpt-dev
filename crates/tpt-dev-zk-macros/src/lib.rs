@@ -16,6 +16,28 @@ use syn::{
 };
 
 /// Writes a circuit version of an `i64` function. See the crate documentation.
+///
+/// # Examples
+///
+/// This example is not compiled here: this crate cannot depend on `tpt-dev-zk`
+/// without a dependency cycle. The same behaviour is exercised by
+/// `tpt-dev-zk`'s tests.
+///
+/// ```ignore
+/// use tpt_dev_zk::{Circuit, circuit};
+///
+/// #[circuit]
+/// fn square_plus(x: i64, k: i64) -> i64 {
+///     x * x + k
+/// }
+///
+/// let c = Circuit::new();
+/// let x = c.private_input(4);
+/// let k = c.public_input(1);
+/// let out = c.output(&square_plus_circuit(x, k));
+/// assert!(c.check().is_ok());
+/// assert_eq!(c.value(out), square_plus(4, 1));
+/// ```
 #[proc_macro_attribute]
 pub fn circuit(attr: TokenStream, item: TokenStream) -> TokenStream {
     let func = parse_macro_input!(item as ItemFn);

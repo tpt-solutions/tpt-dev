@@ -30,6 +30,15 @@ pub struct Recorder<A, R> {
 
 impl<A, R> Recorder<A, R> {
     /// A recorder for the method called `name`, used in failure messages.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_mock::Recorder;
+    /// let recorder: Recorder<(u32,), u32> = Recorder::new("double");
+    /// recorder.expect().with(|args| args.0 == 2).returns(4);
+    /// assert_eq!(recorder.call((2,)), 4);
+    /// ```
     pub const fn new(name: &'static str) -> Self {
         Self {
             name,
@@ -39,6 +48,15 @@ impl<A, R> Recorder<A, R> {
     }
 
     /// Starts a new expectation. It matches every call until `with` is given.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_mock::Recorder;
+    /// let recorder: Recorder<(), u32> = Recorder::new("seven");
+    /// recorder.expect().returns(7);
+    /// assert_eq!(recorder.call(()), 7);
+    /// ```
     pub fn expect(&self) -> ExpectBuilder<'_, A, R> {
         ExpectBuilder {
             recorder: self,
@@ -48,6 +66,17 @@ impl<A, R> Recorder<A, R> {
     }
 
     /// How many times the method has been called.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_mock::Recorder;
+    /// let recorder: Recorder<(), u32> = Recorder::new("ping");
+    /// recorder.expect().returns(1);
+    /// assert_eq!(recorder.calls(), 0);
+    /// recorder.call(());
+    /// assert_eq!(recorder.calls(), 1);
+    /// ```
     pub fn calls(&self) -> usize {
         self.calls.get()
     }
@@ -56,6 +85,15 @@ impl<A, R> Recorder<A, R> {
     ///
     /// Panics if the call matches no expectation. A failed expectation is how a
     /// mock fails the test, so the panic is intended.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_mock::Recorder;
+    /// let recorder: Recorder<(u32,), u32> = Recorder::new("double");
+    /// recorder.expect().returns_with(|(x,)| x * 2);
+    /// assert_eq!(recorder.call((21,)), 42);
+    /// ```
     #[allow(clippy::panic)]
     pub fn call(&self, args: A) -> R {
         self.calls.set(self.calls.get() + 1);
@@ -73,6 +111,16 @@ impl<A, R> Recorder<A, R> {
 
     /// Panics if an expectation with a call count was not met. This is how a
     /// mock fails the test, so the panic is intended.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_mock::Recorder;
+    /// let recorder: Recorder<(), u32> = Recorder::new("ping");
+    /// recorder.expect().times(1).returns(1);
+    /// recorder.call(());
+    /// recorder.verify();
+    /// ```
     #[allow(clippy::panic)]
     pub fn verify(&self) {
         for e in self.expectations.borrow().iter() {
@@ -97,6 +145,17 @@ pub struct ExpectBuilder<'r, A, R> {
 
 impl<A: 'static, R: 'static> ExpectBuilder<'_, A, R> {
     /// Only matches calls whose arguments satisfy `f`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_mock::Recorder;
+    /// let recorder: Recorder<(u32,), u32> = Recorder::new("double");
+    /// recorder.expect().with(|args| args.0 == 2).returns(4);
+    /// recorder.expect().returns(0);
+    /// assert_eq!(recorder.call((2,)), 4);
+    /// assert_eq!(recorder.call((3,)), 0);
+    /// ```
     pub fn with<F>(mut self, f: F) -> Self
     where
         F: Fn(&A) -> bool + 'static,
@@ -106,12 +165,32 @@ impl<A: 'static, R: 'static> ExpectBuilder<'_, A, R> {
     }
 
     /// Allows exactly `n` matching calls. [`Recorder::verify`] checks the count.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_mock::Recorder;
+    /// let recorder: Recorder<(), u32> = Recorder::new("ping");
+    /// recorder.expect().times(2).returns(1);
+    /// recorder.call(());
+    /// recorder.call(());
+    /// recorder.verify();
+    /// ```
     pub fn times(mut self, n: usize) -> Self {
         self.times = Some(n);
         self
     }
 
     /// Answers each matching call with `value`, cloned.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_mock::Recorder;
+    /// let recorder: Recorder<(), u32> = Recorder::new("seven");
+    /// recorder.expect().returns(7);
+    /// assert_eq!(recorder.call(()), 7);
+    /// ```
     pub fn returns(self, value: R) -> Self
     where
         R: Clone,
@@ -120,6 +199,15 @@ impl<A: 'static, R: 'static> ExpectBuilder<'_, A, R> {
     }
 
     /// Answers each matching call by calling `f` with its arguments.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_mock::Recorder;
+    /// let recorder: Recorder<(u32,), u32> = Recorder::new("scale");
+    /// recorder.expect().returns_with(|(x,)| x * 10);
+    /// assert_eq!(recorder.call((4,)), 40);
+    /// ```
     pub fn returns_with<F>(self, f: F) -> Self
     where
         F: FnMut(A) -> R + 'static,

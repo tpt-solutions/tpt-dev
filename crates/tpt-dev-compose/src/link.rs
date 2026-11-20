@@ -3,8 +3,9 @@
 //!
 //! The linker plans. It does not instantiate or run anything. [`Registry::link`]
 //! returns a [`Plan`] that gives the instantiation order and the export each
-//! import is bound to. Executing a plan needs a WebAssembly engine, which this
-//! crate does not provide.
+//! import is bound to. [`crate::runtime::Runtime::instantiate`] follows a plan
+//! to instantiate the core modules, and runs the integer subset described in
+//! [`crate::runtime`].
 //!
 //! Component-level imports are resolved too, by name and kind, against the
 //! exports of the registered components. A component import may be bound only
@@ -237,7 +238,7 @@ pub struct Plan {
 /// Module and component names share one namespace, so a name is registered once.
 #[derive(Debug, Default)]
 pub struct Registry<'a> {
-    modules: Vec<(String, &'a Module)>,
+    pub(crate) modules: Vec<(String, &'a Module)>,
     components: Vec<(String, &'a Component)>,
 }
 
@@ -256,6 +257,16 @@ fn limits_fit(provided: Limits, wanted: Limits) -> bool {
 
 impl<'a> Registry<'a> {
     /// An empty registry.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_compose::Registry;
+    ///
+    /// let registry = Registry::new();
+    /// // An empty registry links trivially.
+    /// assert!(registry.link().is_ok());
+    /// ```
     pub const fn new() -> Self {
         Self {
             modules: Vec::new(),
@@ -264,6 +275,26 @@ impl<'a> Registry<'a> {
     }
 
     /// Registers `module` under `name`, and returns its index.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_compose::{Registry, parse};
+    ///
+    /// const BYTES: &[u8] = &[
+    ///     0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // header
+    ///     0x01, 0x04, 0x01, 0x60, 0x00, 0x00, // type: () -> ()
+    ///     0x03, 0x02, 0x01, 0x00, // function: one, of type 0
+    ///     0x07, 0x07, 0x01, 0x03, 0x72, 0x75, 0x6e, 0x00, 0x00, // export "run" = func 0
+    ///     0x0a, 0x04, 0x01, 0x02, 0x00, 0x0b, // code: one empty body
+    /// ];
+    ///
+    /// let module = parse(BYTES).unwrap();
+    /// let mut registry = Registry::new();
+    /// assert_eq!(registry.register("math", &module).unwrap(), 0);
+    /// // A second module under the same name is refused.
+    /// assert!(registry.register("math", &module).is_err());
+    /// ```
     pub fn register(&mut self, name: &str, module: &'a Module) -> Result<usize, LinkError> {
         if self.taken(name) {
             return Err(LinkError::DuplicateName(String::from(name)));
@@ -273,6 +304,18 @@ impl<'a> Registry<'a> {
     }
 
     /// Registers `component` under `name`, and returns its index in the component list.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_compose::{Registry, parse_component};
+    ///
+    /// const ADD: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/component/add.wasm"));
+    ///
+    /// let component = parse_component(ADD).unwrap();
+    /// let mut registry = Registry::new();
+    /// assert_eq!(registry.register_component("adder", &component).unwrap(), 0);
+    /// ```
     pub fn register_component(
         &mut self,
         name: &str,
@@ -294,6 +337,26 @@ impl<'a> Registry<'a> {
     }
 
     /// Resolves every import, checks every type, and orders the modules and components.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_compose::{Registry, parse};
+    ///
+    /// const BYTES: &[u8] = &[
+    ///     0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // header
+    ///     0x01, 0x04, 0x01, 0x60, 0x00, 0x00, // type: () -> ()
+    ///     0x03, 0x02, 0x01, 0x00, // function: one, of type 0
+    ///     0x07, 0x07, 0x01, 0x03, 0x72, 0x75, 0x6e, 0x00, 0x00, // export "run" = func 0
+    ///     0x0a, 0x04, 0x01, 0x02, 0x00, 0x0b, // code: one empty body
+    /// ];
+    ///
+    /// let module = parse(BYTES).unwrap();
+    /// let mut registry = Registry::new();
+    /// registry.register("math", &module).unwrap();
+    /// // The module has no imports, so every import resolves.
+    /// assert!(registry.link().is_ok());
+    /// ```
     pub fn link(&self) -> Result<Plan, LinkError> {
         let (bindings, order) = self.link_modules()?;
         let (component_bindings, component_order) = self.link_components()?;
