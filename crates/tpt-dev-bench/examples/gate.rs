@@ -94,7 +94,7 @@ fn parse_args(args: &[String]) -> Result<((String, String), Policy), String> {
                 policy.max_regression_pct = number(it.next(), arg)?;
             }
             "--critical-t" => {
-                policy.critical_t = number(it.next(), arg)?;
+                policy.critical_t = Some(number(it.next(), arg)?);
             }
             flag if flag.starts_with("--") => return Err(format!("unknown option {flag}")),
             path => files.push(path.to_string()),

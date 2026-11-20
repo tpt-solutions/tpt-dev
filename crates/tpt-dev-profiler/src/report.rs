@@ -31,6 +31,21 @@ pub struct Report {
 
 impl Report {
     /// Attributes every sample in `sampler` to a function, using `symbols`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_profiler::{Report, Sampler, Symbols};
+    ///
+    /// const TABLE: &[(usize, &str)] = &[(0x100, "main"), (0x200, "filter")];
+    /// let symbols = Symbols::new(TABLE, 0x300).unwrap();
+    /// let sampler: Sampler<8, 4> = Sampler::new();
+    /// // Frames are innermost first: filter called from main.
+    /// sampler.record(&[0x210, 0x110]);
+    /// sampler.record(&[0x210]);
+    /// let report = Report::new(&sampler, &symbols);
+    /// assert_eq!(report.total(), 2);
+    /// ```
     pub fn new<const N: usize, const D: usize>(
         sampler: &Sampler<N, D>,
         symbols: &Symbols<'_>,
@@ -66,16 +81,62 @@ impl Report {
     }
 
     /// The number of samples the sampler held when the report was built.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_profiler::{Report, Sampler, Symbols};
+    ///
+    /// const TABLE: &[(usize, &str)] = &[(0x100, "main"), (0x200, "filter")];
+    /// let symbols = Symbols::new(TABLE, 0x300).unwrap();
+    /// let sampler: Sampler<8, 4> = Sampler::new();
+    /// // Frames are innermost first: filter called from main.
+    /// sampler.record(&[0x210, 0x110]);
+    /// sampler.record(&[0x210]);
+    /// let report = Report::new(&sampler, &symbols);
+    /// assert_eq!(report.total(), 2);
+    /// ```
     pub fn total(&self) -> u64 {
         self.total
     }
 
     /// The number of samples the sampler dropped because it was full.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_profiler::{Report, Sampler, Symbols};
+    ///
+    /// const TABLE: &[(usize, &str)] = &[(0x100, "main")];
+    /// let symbols = Symbols::new(TABLE, 0x200).unwrap();
+    /// // A buffer of one sample drops the second.
+    /// let sampler: Sampler<1, 4> = Sampler::new();
+    /// sampler.record(&[0x110]);
+    /// sampler.record(&[0x110]);
+    /// let report = Report::new(&sampler, &symbols);
+    /// assert_eq!(report.dropped(), 1);
+    /// ```
     pub fn dropped(&self) -> u64 {
         self.dropped
     }
 
     /// Per-function counts, most self samples first. Ties are sorted by name.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_profiler::{Report, Sampler, Symbols};
+    ///
+    /// const TABLE: &[(usize, &str)] = &[(0x100, "main"), (0x200, "filter")];
+    /// let symbols = Symbols::new(TABLE, 0x300).unwrap();
+    /// let sampler: Sampler<8, 4> = Sampler::new();
+    /// // Frames are innermost first: filter called from main.
+    /// sampler.record(&[0x210, 0x110]);
+    /// sampler.record(&[0x210]);
+    /// let report = Report::new(&sampler, &symbols);
+    /// // filter has two self samples, and appears in both stacks.
+    /// assert_eq!(report.functions()[0], ("filter", tpt_dev_profiler::Counts { own: 2, inclusive: 2 }));
+    /// ```
     pub fn functions(&self) -> Vec<(&str, Counts)> {
         let mut out: Vec<(&str, Counts)> = self
             .functions
@@ -87,6 +148,23 @@ impl Report {
     }
 
     /// Writes a summary table: self and total percentages, and the function name.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_profiler::{Report, Sampler, Symbols};
+    ///
+    /// const TABLE: &[(usize, &str)] = &[(0x100, "main"), (0x200, "filter")];
+    /// let symbols = Symbols::new(TABLE, 0x300).unwrap();
+    /// let sampler: Sampler<8, 4> = Sampler::new();
+    /// // Frames are innermost first: filter called from main.
+    /// sampler.record(&[0x210, 0x110]);
+    /// sampler.record(&[0x210]);
+    /// let report = Report::new(&sampler, &symbols);
+    /// let mut out = String::new();
+    /// report.write_text(&mut out).unwrap();
+    /// assert!(out.starts_with("samples: 2  dropped: 0"));
+    /// ```
     pub fn write_text(&self, out: &mut impl Write) -> fmt::Result {
         writeln!(out, "samples: {}  dropped: {}", self.total, self.dropped)?;
         writeln!(out, "{:>7} {:>7}  function", "self", "total")?;
@@ -106,6 +184,23 @@ impl Report {
     ///
     /// This is the input format of `inferno-flamegraph` and `flamegraph.pl`,
     /// which turn it into an SVG flamegraph.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_profiler::{Report, Sampler, Symbols};
+    ///
+    /// const TABLE: &[(usize, &str)] = &[(0x100, "main"), (0x200, "filter")];
+    /// let symbols = Symbols::new(TABLE, 0x300).unwrap();
+    /// let sampler: Sampler<8, 4> = Sampler::new();
+    /// // Frames are innermost first: filter called from main.
+    /// sampler.record(&[0x210, 0x110]);
+    /// sampler.record(&[0x210]);
+    /// let report = Report::new(&sampler, &symbols);
+    /// let mut out = String::new();
+    /// report.write_folded(&mut out).unwrap();
+    /// assert!(out.contains("main;filter 1"));
+    /// ```
     pub fn write_folded(&self, out: &mut impl Write) -> fmt::Result {
         for (stack, count) in &self.folded {
             writeln!(out, "{stack} {count}")?;

@@ -1,0 +1,55 @@
+# Example CI job: fail a pull request when a control step exceeds its real-time
+# budget, or regresses against the baseline committed on the base branch.
+#
+# To use it, copy this file to .github/workflows/budget-gate.yml. The budget_gate
+# example measures a built-in control step. Replace that step with your own code
+# in your copy of the example.
+#
+# Trust model: the example is built and run from the pull request checkout, so a
+# pull request that edits the example can change what is measured. For a stricter
+# gate, split measurement from judgment as examples/ci/bench-gate.yml does: run the
+# measurement from the pull request and the judgment from the base branch.
+#
+# Shared runners are noisy. Set the budget with headroom over the typical p99, and
+# regenerate the baseline on the same runner class before enabling the gate.
+
+name: budget-gate
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  budget-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the pull request
+        uses: actions/checkout@v4
+        with:
+          path: pr
+
+      - name: Check out the base branch (baseline)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.base_ref }}
+          path: base
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            pr
+            base
+
+      - name: Measure the control step and gate it against the base baseline
+        working-directory: pr
+        run: >
+          cargo run --release -p tpt-dev-profiler --example budget_gate --
+          --budget-ns 50000
+          --baseline "$GITHUB_WORKSPACE/base/crates/tpt-dev-profiler/examples/ci/budget-baseline.txt"

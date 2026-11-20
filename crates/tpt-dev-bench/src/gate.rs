@@ -1,22 +1,24 @@
 //! The CI gate: decide whether a new run is a regression against a baseline.
 
 use crate::baseline::Entry;
-use crate::stats::{sqrt, summarise, trim_outliers};
+use crate::stats::{sqrt, summarise, t_critical_95, trim_outliers, welch_df};
 
 /// When a change counts as a regression.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Policy {
     /// A slowdown must be at least this large, in percent, to fail the gate.
     pub max_regression_pct: f64,
-    /// A change must have a t statistic at least this large, in magnitude, to be trusted.
-    pub critical_t: f64,
+    /// Overrides the critical t value. `None` (the default) uses the two-sided
+    /// 95% value for the Welch degrees of freedom of the comparison, from
+    /// [`t_critical_95`].
+    pub critical_t: Option<f64>,
 }
 
 impl Default for Policy {
     fn default() -> Self {
         Self {
             max_regression_pct: 10.0,
-            critical_t: 2.0,
+            critical_t: None,
         }
     }
 }
@@ -45,6 +47,15 @@ pub enum Verdict {
 
 impl Verdict {
     /// Returns `true` if the gate should fail.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_bench::Verdict;
+    ///
+    /// assert!(Verdict::Regression { change_pct: 12.0 }.is_failure());
+    /// assert!(!Verdict::Ok.is_failure());
+    /// ```
     pub fn is_failure(&self) -> bool {
         matches!(self, Verdict::Regression { .. })
     }
@@ -75,6 +86,17 @@ pub fn judge(samples: &[f64], base: &Entry, policy: Policy) -> Option<Verdict> {
 /// line of a results file. The run's outliers must already have been trimmed
 /// when its entry was produced. Returns `None` if `current.n` or `base.n` is
 /// below two, or if the baseline mean is zero.
+///
+/// # Examples
+///
+/// ```
+/// use tpt_dev_bench::{Entry, Policy, judge_entry};
+///
+/// let base = Entry { name: "parse".into(), mean: 100.0, stddev: 1.0, n: 20 };
+/// let current = Entry { name: "parse".into(), mean: 130.0, stddev: 1.0, n: 20 };
+/// let verdict = judge_entry(&current, &base, Policy::default()).unwrap();
+/// assert!(verdict.is_failure());
+/// ```
 pub fn judge_entry(current: &Entry, base: &Entry, policy: Policy) -> Option<Verdict> {
     decide(current.mean, current.stddev, current.n, base, policy)
 }
@@ -101,7 +123,10 @@ fn decide(
         (cur_mean - base.mean) / se
     };
     let change_pct = (cur_mean - base.mean) / base.mean * 100.0;
-    let trusted = t.abs() >= policy.critical_t;
+    let critical = policy
+        .critical_t
+        .unwrap_or_else(|| t_critical_95(welch_df(cur_stddev, cur_n, base.stddev, base.n)));
+    let trusted = t.abs() >= critical;
     Some(if change_pct > policy.max_regression_pct {
         if trusted {
             Verdict::Regression { change_pct }
@@ -152,7 +177,7 @@ mod tests {
             &base(),
             Policy {
                 max_regression_pct: 10.0,
-                critical_t: 2.0,
+                critical_t: Some(2.0),
             },
         )
         .unwrap();

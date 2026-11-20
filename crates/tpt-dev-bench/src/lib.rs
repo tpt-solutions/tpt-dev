@@ -17,4 +17,4 @@ pub mod harness;
 pub use baseline::{Baseline, Entry, ParseError};
 pub use cycles::{CycleSource, ManualCycles, measure_with};
 pub use gate::{Policy, Verdict, judge, judge_entry};
-pub use stats::{Comparison, Summary, compare, summarise, trim_outliers};
+pub use stats::{Comparison, Summary, compare, summarise, t_critical_95, trim_outliers};

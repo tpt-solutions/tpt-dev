@@ -43,6 +43,15 @@ impl fmt::Display for ParseError {
 
 impl Baseline {
     /// An empty baseline.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_bench::Baseline;
+    ///
+    /// let baseline = Baseline::new();
+    /// assert!(baseline.entries().is_empty());
+    /// ```
     pub const fn new() -> Self {
         Self {
             entries: Vec::new(),
@@ -50,6 +59,16 @@ impl Baseline {
     }
 
     /// Adds or replaces the entry for `entry.name`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_bench::{Baseline, Entry};
+    ///
+    /// let mut baseline = Baseline::new();
+    /// baseline.insert(Entry { name: "parse".into(), mean: 100.0, stddev: 1.0, n: 20 });
+    /// assert_eq!(baseline.get("parse").unwrap().n, 20);
+    /// ```
     pub fn insert(&mut self, entry: Entry) {
         match self.entries.iter_mut().find(|e| e.name == entry.name) {
             Some(slot) => *slot = entry,
@@ -58,16 +77,47 @@ impl Baseline {
     }
 
     /// The entry for `name`, if recorded.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_bench::{Baseline, Entry};
+    ///
+    /// let mut baseline = Baseline::new();
+    /// baseline.insert(Entry { name: "parse".into(), mean: 100.0, stddev: 1.0, n: 20 });
+    /// assert!(baseline.get("parse").is_some());
+    /// assert!(baseline.get("missing").is_none());
+    /// ```
     pub fn get(&self, name: &str) -> Option<&Entry> {
         self.entries.iter().find(|e| e.name == name)
     }
 
     /// All entries, in insertion order.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_bench::{Baseline, Entry};
+    ///
+    /// let mut baseline = Baseline::new();
+    /// baseline.insert(Entry { name: "parse".into(), mean: 100.0, stddev: 1.0, n: 20 });
+    /// assert_eq!(baseline.entries().len(), 1);
+    /// ```
     pub fn entries(&self) -> &[Entry] {
         &self.entries
     }
 
     /// Writes the baseline in its text format.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_bench::{Baseline, Entry};
+    ///
+    /// let mut baseline = Baseline::new();
+    /// baseline.insert(Entry { name: "parse".into(), mean: 100.0, stddev: 1.0, n: 20 });
+    /// assert!(baseline.to_text().contains("parse 100 1 20\n"));
+    /// ```
     pub fn to_text(&self) -> String {
         let mut out = String::from("# name mean stddev n\n");
         for e in &self.entries {
@@ -83,6 +133,18 @@ impl Baseline {
     }
 
     /// Reads the text format produced by [`Baseline::to_text`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_bench::Baseline;
+    ///
+    /// let text = "# recorded on the CI runner
+    /// parse 100 1 20
+    /// ";
+    /// let baseline = Baseline::parse(text).unwrap();
+    /// assert_eq!(baseline.get("parse").unwrap().n, 20);
+    /// ```
     pub fn parse(text: &str) -> Result<Self, ParseError> {
         let mut entries = Vec::new();
         for (i, raw) in text.lines().enumerate() {

@@ -8,7 +8,8 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 readme = "README.md"
-categories = ["no-std"]
+keywords = ["benchmark", "regression", "statistics", "ci"]
+categories = ["no-std", "development-tools::profiling", "development-tools::testing"]
 
 [features]
 default = []
@@ -19,3 +20,7 @@ workspace = true
 
 [package.metadata.docs.rs]
 all-features = true
+
+[[example]]
+name = "bench_suite"
+required-features = ["std"]

@@ -17,6 +17,17 @@ impl<'a> Symbols<'a> {
     /// A table over `table`, for code that ends before `code_end`.
     ///
     /// Returns `None` if the addresses are not in ascending order.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_profiler::Symbols;
+    ///
+    /// const TABLE: &[(usize, &str)] = &[(0x100, "main"), (0x200, "filter")];
+    /// assert!(Symbols::new(TABLE, 0x300).is_some());
+    /// // Addresses must be in ascending order.
+    /// assert!(Symbols::new(&[(0x200, "b"), (0x100, "a")], 0x300).is_none());
+    /// ```
     pub fn new(table: &'a [(usize, &'a str)], code_end: usize) -> Option<Self> {
         if table.windows(2).all(|w| w[0].0 <= w[1].0) {
             Some(Self { table, code_end })
@@ -27,6 +38,19 @@ impl<'a> Symbols<'a> {
 
     /// The name of the function that contains `pc`. `None` before the first
     /// function, or at or past the end of the code.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_profiler::Symbols;
+    ///
+    /// const TABLE: &[(usize, &str)] = &[(0x100, "main"), (0x200, "filter")];
+    /// let symbols = Symbols::new(TABLE, 0x300).unwrap();
+    /// assert_eq!(symbols.lookup(0x150), Some("main"));
+    /// assert_eq!(symbols.lookup(0x250), Some("filter"));
+    /// // Past the end of the code is unknown.
+    /// assert_eq!(symbols.lookup(0x400), None);
+    /// ```
     pub fn lookup(&self, pc: usize) -> Option<&'a str> {
         if pc >= self.code_end {
             return None;

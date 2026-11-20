@@ -29,6 +29,16 @@ pub trait CycleSource {
 /// so a hardware counter that wraps between the two reads still gives the
 /// right difference. `black_box` keeps the optimiser from removing the work.
 /// Trim the result with [`crate::trim_outliers`] before summarising.
+///
+/// # Examples
+///
+/// ```
+/// use tpt_dev_bench::{ManualCycles, measure_with};
+///
+/// let mut clock = ManualCycles::new(&[0, 5, 10, 17]);
+/// let samples = measure_with(&mut clock, 0, 2, || 1 + 1);
+/// assert_eq!(samples, vec![5.0, 7.0]);
+/// ```
 pub fn measure_with<C, R, F>(clock: &mut C, warmup: usize, iters: usize, mut f: F) -> Vec<f64>
 where
     C: CycleSource,
@@ -60,6 +70,15 @@ pub struct ManualCycles {
 
 impl ManualCycles {
     /// A counter that will return `readings` in order.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_bench::ManualCycles;
+    ///
+    /// let clock = ManualCycles::new(&[1, 2, 3]);
+    /// assert_eq!(clock.remaining(), 3);
+    /// ```
     pub fn new(readings: &[u64]) -> Self {
         Self {
             readings: readings.to_vec(),
@@ -68,6 +87,16 @@ impl ManualCycles {
     }
 
     /// The number of readings not yet returned.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_bench::{CycleSource, ManualCycles};
+    ///
+    /// let mut clock = ManualCycles::new(&[1, 2, 3]);
+    /// clock.now();
+    /// assert_eq!(clock.remaining(), 2);
+    /// ```
     pub fn remaining(&self) -> usize {
         self.readings.len().saturating_sub(self.next)
     }

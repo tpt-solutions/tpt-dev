@@ -27,6 +27,15 @@ impl<const N: usize, const D: usize> Default for Sampler<N, D> {
 
 impl<const N: usize, const D: usize> Sampler<N, D> {
     /// An empty buffer.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_profiler::Sampler;
+    ///
+    /// let sampler: Sampler<4, 8> = Sampler::new();
+    /// assert_eq!(sampler.capacity(), 4);
+    /// ```
     pub const fn new() -> Self {
         Self {
             next: AtomicUsize::new(0),
@@ -40,6 +49,18 @@ impl<const N: usize, const D: usize> Sampler<N, D> {
     /// Frames beyond `D` are ignored.
     ///
     /// Returns `false` when the buffer is full, and the sample is dropped.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_profiler::Sampler;
+    ///
+    /// let sampler: Sampler<2, 4> = Sampler::new();
+    /// assert!(sampler.record(&[0x100, 0x200]));
+    /// assert!(sampler.record(&[0x100]));
+    /// // The buffer holds two samples, so the third is dropped.
+    /// assert!(!sampler.record(&[0x100]));
+    /// ```
     pub fn record(&self, frames: &[usize]) -> bool {
         let slot = match self
             .next
@@ -63,6 +84,18 @@ impl<const N: usize, const D: usize> Sampler<N, D> {
     /// Calls `f` with each published sample, oldest first, innermost frame first.
     ///
     /// Stops at the first slot whose write has not been published yet.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_profiler::Sampler;
+    ///
+    /// let sampler: Sampler<2, 4> = Sampler::new();
+    /// sampler.record(&[1, 2]);
+    /// let mut depths = Vec::new();
+    /// sampler.for_each(|frames| depths.push(frames.len()));
+    /// assert_eq!(depths, vec![2]);
+    /// ```
     pub fn for_each(&self, mut f: impl FnMut(&[usize])) {
         let claimed = self.next.load(Ordering::Relaxed).min(N);
         let mut buf = [0usize; D];
@@ -79,16 +112,49 @@ impl<const N: usize, const D: usize> Sampler<N, D> {
     }
 
     /// The number of samples dropped because the buffer was full.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_profiler::Sampler;
+    ///
+    /// let sampler: Sampler<1, 4> = Sampler::new();
+    /// sampler.record(&[1]);
+    /// sampler.record(&[2]);
+    /// assert_eq!(sampler.dropped(), 1);
+    /// ```
     pub fn dropped(&self) -> usize {
         self.next.load(Ordering::Relaxed).saturating_sub(N)
     }
 
     /// The number of samples the buffer can hold.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_profiler::Sampler;
+    ///
+    /// let sampler: Sampler<16, 4> = Sampler::new();
+    /// assert_eq!(sampler.capacity(), 16);
+    /// ```
     pub const fn capacity(&self) -> usize {
         N
     }
 
     /// Empties the buffer. It takes `&mut self`, so no hook can be writing.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tpt_dev_profiler::Sampler;
+    ///
+    /// let mut sampler: Sampler<2, 4> = Sampler::new();
+    /// sampler.record(&[1]);
+    /// sampler.clear();
+    /// let mut count = 0;
+    /// sampler.for_each(|_| count += 1);
+    /// assert_eq!(count, 0);
+    /// ```
     pub fn clear(&mut self) {
         *self.next.get_mut() = 0;
         for ready in &mut self.ready {

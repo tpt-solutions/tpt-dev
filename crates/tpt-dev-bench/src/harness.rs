@@ -11,6 +11,20 @@ use std::time::Instant;
 ///
 /// `black_box` keeps the optimiser from removing the work. Results are
 /// per-run times, so trim them with [`crate::trim_outliers`] before summarising.
+///
+/// # Examples
+///
+/// ```
+/// # #[cfg(feature = "std")]
+/// # fn main() {
+/// use tpt_dev_bench::harness::measure;
+///
+/// let times = measure(2, 10, || (0..100u32).sum::<u32>());
+/// assert_eq!(times.len(), 10);
+/// # }
+/// # #[cfg(not(feature = "std"))]
+/// # fn main() {}
+/// ```
 pub fn measure<R, F>(warmup: usize, iters: usize, mut f: F) -> Vec<f64>
 where
     F: FnMut() -> R,

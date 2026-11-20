@@ -51,18 +51,18 @@ jobs:
 
       - name: Run benchmarks from the pull request
         working-directory: pr
-        # PLACEHOLDER: the bench example in your crate that writes the results file.
+        # Runs the bench_suite example (a template: replace its workloads with your own).
         run: >
-          cargo run --release -p PLACEHOLDER-BENCH-CRATE
-          --example PLACEHOLDER-BENCH-EXAMPLE
+          cargo run --release -p tpt-dev-bench
+          --example bench_suite --features std
           -- "$GITHUB_WORKSPACE/results.txt"
 
       - name: Gate against the base baseline
         working-directory: base
         # Runs the gate from the base checkout, so the pull request cannot change it.
-        # PLACEHOLDER: the baseline file path inside the base branch.
+        # The critical t value comes from the Welch degrees of freedom by default.
         run: >
           cargo run --release -p tpt-dev-bench --example gate --
-          "$GITHUB_WORKSPACE/base/PLACEHOLDER-BASELINE-PATH"
+          "$GITHUB_WORKSPACE/base/crates/tpt-dev-bench/examples/ci/baseline.txt"
           "$GITHUB_WORKSPACE/results.txt"
-          --max-regression-pct 10 --critical-t 2
+          --max-regression-pct 10
