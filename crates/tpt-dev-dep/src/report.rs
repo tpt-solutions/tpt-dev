@@ -60,8 +60,27 @@ pub fn analyse(
     let edges = graph.edges(scope);
     let cycles = cycles(graph, &edges);
 
+    // A package pulled in only through an edge outside `scope` (for example a
+    // dev-dependency's subtree) is not part of the analysed graph, so its
+    // license is not checked. Packages no root reaches at all stay checked.
+    let all_edges = graph.edges(Scope::ALL);
+    let mut has_incoming = vec![false; graph.packages.len()];
+    for targets in &all_edges {
+        for &t in targets {
+            has_incoming[t] = true;
+        }
+    }
+    let roots: Vec<usize> = (0..graph.packages.len())
+        .filter(|&i| !has_incoming[i])
+        .collect();
+    let in_scope = reached(&edges, &roots);
+    let in_all = reached(&all_edges, &roots);
+
     let mut license_violations = Vec::new();
-    for p in &graph.packages {
+    for (i, p) in graph.packages.iter().enumerate() {
+        if !(in_scope[i] || !in_all[i]) {
+            continue;
+        }
         let license = licenses
             .iter()
             .find(|(n, _)| *n == p.name)
@@ -90,6 +109,24 @@ pub fn analyse(
         license_violations,
         transitive,
     }
+}
+
+/// For each node, whether it is reachable from any of `roots`.
+fn reached(edges: &[Vec<usize>], roots: &[usize]) -> Vec<bool> {
+    let mut seen = vec![false; edges.len()];
+    let mut stack: Vec<usize> = roots.to_vec();
+    for &r in roots {
+        seen[r] = true;
+    }
+    while let Some(v) = stack.pop() {
+        for &w in &edges[v] {
+            if !seen[w] {
+                seen[w] = true;
+                stack.push(w);
+            }
+        }
+    }
+    seen
 }
 
 /// Number of nodes reachable from `start`, including `start`.
@@ -176,4 +213,92 @@ fn cycles(graph: &Graph, edges: &[Vec<usize>]) -> Vec<Vec<String>> {
             names
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lock::{DepKind, Dependency, Package};
+
+    fn pkg(name: &str, deps: Vec<Dependency>) -> Package {
+        Package {
+            name: name.to_string(),
+            version: String::from("1.0.0"),
+            source: None,
+            dependencies: deps,
+        }
+    }
+
+    fn dep(target: &str, kind: DepKind) -> Dependency {
+        Dependency {
+            target: target.to_string(),
+            kind,
+            optional: false,
+        }
+    }
+
+    /// `app` uses `lib` normally and `devonly` as a dev-dependency. `devonly`
+    /// pulls in `apache`, whose license is not allowed.
+    fn graph() -> Graph {
+        Graph {
+            packages: vec![
+                pkg(
+                    "app",
+                    vec![dep("lib", DepKind::Normal), dep("devonly", DepKind::Dev)],
+                ),
+                pkg("lib", vec![]),
+                pkg("devonly", vec![dep("apache", DepKind::Normal)]),
+                pkg("apache", vec![]),
+            ],
+        }
+    }
+
+    fn licenses() -> Vec<(String, String)> {
+        [
+            ("app", "MIT"),
+            ("lib", "MIT"),
+            ("devonly", "MIT"),
+            ("apache", "Apache-2.0"),
+        ]
+        .iter()
+        .map(|(n, l)| (n.to_string(), l.to_string()))
+        .collect()
+    }
+
+    fn policy() -> Policy {
+        Policy {
+            allow: vec![String::from("MIT")],
+        }
+    }
+
+    #[test]
+    fn dev_only_subtree_license_is_not_checked_by_default() {
+        let r = analyse(&graph(), &licenses(), &policy(), Scope::default());
+        assert!(
+            r.license_violations.is_empty(),
+            "{:?}",
+            r.license_violations
+        );
+    }
+
+    #[test]
+    fn dev_only_subtree_license_is_checked_when_dev_is_included() {
+        let r = analyse(&graph(), &licenses(), &policy(), Scope::ALL);
+        assert_eq!(
+            r.license_violations,
+            vec![(String::from("apache"), String::from("Apache-2.0"))]
+        );
+    }
+
+    #[test]
+    fn normal_dependency_license_is_always_checked() {
+        let mut lic = licenses();
+        lic.retain(|(n, _)| n != "lib");
+        lic.push((String::from("lib"), String::from("GPL-3.0")));
+        let r = analyse(&graph(), &lic, &policy(), Scope::default());
+        assert_eq!(
+            r.license_violations,
+            vec![(String::from("lib"), String::from("GPL-3.0"))]
+        );
+    }
 }

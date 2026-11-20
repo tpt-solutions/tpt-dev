@@ -12,7 +12,7 @@
 //! to a single export of its kind, with that name, across all registered
 //! components. The types of function, value, type and instance imports are
 //! compared structurally where both sides can be followed (see
-//! [`crate::compare`]). An instance may export more than the importer asks for.
+//! `crate::compare`). An instance may export more than the importer asks for.
 //! A pair that cannot be followed, such as one involving a resource or an alias,
 //! is checked by name and kind only. The plan records these
 //! bindings as data. Nothing here instantiates a component either.

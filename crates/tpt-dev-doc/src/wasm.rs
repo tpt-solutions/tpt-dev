@@ -2,7 +2,7 @@
 //!
 //! The compile step runs `rustc` and needs `std`. It is a build-time step on the
 //! maintainer's machine, and only for trusted documentation. The runner,
-//! [`RUNNER_JS`], runs in the reader's browser, in a Web Worker with a time limit.
+//! [`crate::wasm::RUNNER_JS`], runs in the reader's browser, in a Web Worker with a time limit.
 //!
 //! The Wasm module is built with a 16 MiB memory cap. It imports nothing, so it
 //! has no access to the page, the network or the file system.

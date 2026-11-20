@@ -1,7 +1,7 @@
 //! Component Model types: decoding the type section, and the canonical ABI's
 //! size, alignment and flattening for value types.
 //!
-//! [`decode_items`] reads the type section of a component: the defined value
+//! `decode_items` reads the type section of a component: the defined value
 //! types, function types (sync and async), resource types, and the component,
 //! instance and core module types with their declarations. The stream, future,
 //! error-context, fixed-size list and map types are decoded too. A section that
